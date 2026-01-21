@@ -1,0 +1,13 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "Run baseline (module)",
+            "type": "python",
+            "request": "launch",
+            "module": "freq2transfer.experiments.run_baseline",
+            "console": "integratedTerminal",
+            "justMyCode": true
+        }
+    ]
+}

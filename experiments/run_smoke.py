@@ -1,8 +1,13 @@
 import numpy as np
-from freq2transfer.helmholtz.config import Grid2D, HelmholtzConfig
-from freq2transfer.helmholtz.cases import make_default_cases
-from freq2transfer.helmholtz.medium import build_medium
-from freq2transfer.helmholtz.assemble import assemble_helmholtz_matrix
+
+from numerics.config import Grid2D, PMLConfig, HelmholtzConfig
+from numerics.cases import make_default_cases
+from numerics.medium import build_medium
+from numerics.rhs import assemble_rhs
+from numerics.assemble import assemble_helmholtz_matrix, ppw_gate
+from numerics.solve import solve_linear_system, compute_residual
+from numerics.diagnostics import save_npz, plot_field, plot_spectrum, pml_energy_proxy
+
 
 
 def test_assemble_shape():

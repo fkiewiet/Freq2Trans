@@ -1,2 +1,4 @@
-# Freq2Trans
-Part 2 of the Frequency Transfer Project
+# Freq2Transfer skeleton
+
+Run with:
+python -m experiments.run_baseline

@@ -1,6 +1,6 @@
 from __future__ import annotations
 import numpy as np
-from .config import Grid2D
+from core.config import Grid2D
 
 
 def vec_to_field(v: np.ndarray, grid: Grid2D) -> np.ndarray:

@@ -6,12 +6,12 @@ from typing import Callable, Dict, List, Tuple
 
 import numpy as np
 
-from .config import HelmholtzConfig, CaseConfig
-from .medium import build_medium
-from .rhs import assemble_rhs
-from .assemble import assemble_helmholtz_matrix
-from .solve import solve_linear_system
-from .diagnostics import save_npz, plot_field, plot_spectrum
+from core.config import HelmholtzConfig, CaseConfig
+from core.medium import build_medium
+from core.rhs import assemble_rhs
+from operators.assemble import assemble_helmholtz_matrix
+from operators.solve import solve_linear_system
+from diagnostics import save_npz, plot_field, plot_spectrum
 
 
 TransferOp = Callable[[np.ndarray, object, object], np.ndarray]

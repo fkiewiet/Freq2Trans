@@ -3,25 +3,9 @@ from dataclasses import dataclass
 from typing import Callable, Optional, Tuple
 import numpy as np
 
-@dataclass(frozen=True)
-class Grid2D:
-    nx: int
-    ny: int
-    lx: float
-    ly: float
+from .grid import Grid2D
 
-    @property
-    def hx(self) -> float:
-        return self.lx / (self.nx - 1)
 
-    @property
-    def hy(self) -> float:
-        return self.ly / (self.ny - 1)
-
-    def mesh(self) -> Tuple[np.ndarray, np.ndarray]:
-        x = np.linspace(0.0, self.lx, self.nx)
-        y = np.linspace(0.0, self.ly, self.ny)
-        return np.meshgrid(x, y, indexing="ij")
 
 @dataclass(frozen=True)
 class PMLConfig:

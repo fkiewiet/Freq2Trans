@@ -3,11 +3,11 @@ from __future__ import annotations
 from typing import Any, Dict, Optional
 import numpy as np
 
-from .config import Grid2D, PMLConfig, HelmholtzConfig, CaseConfig
-from .medium import build_medium
-from .rhs import assemble_rhs
-from .assemble import assemble_helmholtz_matrix
-from .solve import solve_linear_system
+from core.config import Grid2D, PMLConfig, HelmholtzConfig, CaseConfig
+from core.medium import build_medium
+from core.rhs import assemble_rhs
+from operators.assemble import assemble_helmholtz_matrix
+from operators.solve import solve_linear_system
 
 
 def refine_grid(grid: Grid2D, r: int = 2) -> Grid2D:

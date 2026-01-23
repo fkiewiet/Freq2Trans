@@ -1,6 +1,6 @@
 
 import numpy as np
-from .config import HelmholtzConfig
+from core.config import HelmholtzConfig
 
 def pml_profile_1d(n, thickness, sigma_max, power):
     sigma = np.zeros(n)

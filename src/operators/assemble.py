@@ -114,52 +114,42 @@ def _assemble_helmholtz_matrix_dirichlet(cfg: HelmholtzConfig, c: np.ndarray) ->
             add(p, idx(i, j + 1, ny), complex(-inv_hy2))
 
     return sp.coo_matrix((data, (rows, cols)), shape=(N, N)).tocsr()
-
-
 def _assemble_helmholtz_matrix_pml(cfg: HelmholtzConfig, c: np.ndarray) -> sp.csr_matrix:
     """
     PML discretization using complex coordinate stretching (frequency-domain).
 
-    Continuous operator:
-        - (1/sx) ∂x ( (1/sx) ∂x u ) - (1/sy) ∂y ( (1/sy) ∂y u ) - k^2 u
+    Standard flux-form stretched operator:
+        -∂x( bx(x) ∂x u ) - ∂y( by(y) ∂y u ) - k^2 u
 
-    Discretization:
-      - Define bx = 1/sx (1D in x), by = 1/sy (1D in y).
-      - Use half-step averaging for bx_{i+1/2} and by_{j+1/2}.
-      - Apply a conservative flux form:
-            -(bx_i) * [ bx_{i+1/2}(u_{i+1}-u_i) - bx_{i-1/2}(u_i-u_{i-1}) ] / hx^2
-        and similarly for y with by_j, by_{j±1/2}.
+    where bx = 1/sx and by = 1/sy are 1D complex stretch factors.
+
+    Discretization (2nd-order conservative flux form):
+        Lx u_i = -( bx_{i+1/2}(u_{i+1}-u_i) - bx_{i-1/2}(u_i-u_{i-1}) ) / hx^2
+    and similarly in y.
 
     Boundary handling:
-      - We DO NOT impose Dirichlet rows.
-      - We omit neighbors outside the domain (simple Neumann-like closure).
-        The PML region should absorb before reaching the outer edge.
-
-    Notes:
-      - This is a solid first production implementation.
-      - If you later want a stricter boundary closure (e.g., one-sided flux),
-        that can be added without changing the public API.
+      - No Dirichlet identity rows.
+      - Neumann-like closure by omitting out-of-domain neighbors (drop missing flux terms).
     """
     nx, ny = cfg.grid.nx, cfg.grid.ny
     hx, hy = cfg.grid.hx, cfg.grid.hy
     N = nx * ny
 
-    # PML profiles (robust to legacy config names inside build_pml_profiles)
-    # Use conservative reference wavespeed: min(c)
+    # Build PML profiles
     sig_x, sig_y, sx, sy = build_pml_profiles(cfg, c_ref=float(np.min(c)))
 
-    # In stretched coordinates
-    bx = 1.0 / sx  # complex (nx,)
-    by = 1.0 / sy  # complex (ny,)
+    # bx, by = 1/s
+    bx = 1.0 / sx  # (nx,) complex
+    by = 1.0 / sy  # (ny,) complex
 
-    # Half-step averages: i+1/2 and j+1/2
-    bx_ip = 0.5 * (bx[1:] + bx[:-1])  # (nx-1,)
-    by_jp = 0.5 * (by[1:] + by[:-1])  # (ny-1,)
+    # Half-step averages
+    bx_ip = 0.5 * (bx[1:] + bx[:-1])  # (nx-1,) -> i+1/2
+    by_jp = 0.5 * (by[1:] + by[:-1])  # (ny-1,) -> j+1/2
 
     inv_hx2 = 1.0 / (hx * hx)
     inv_hy2 = 1.0 / (hy * hy)
 
-    k2 = (cfg.omega / c) ** 2  # float array (nx,ny)
+    k2 = (cfg.omega / c) ** 2  # (nx, ny) real
 
     rows: list[int] = []
     cols: list[int] = []
@@ -171,53 +161,46 @@ def _assemble_helmholtz_matrix_pml(cfg: HelmholtzConfig, c: np.ndarray) -> sp.cs
         data.append(val)
 
     for i in range(nx):
-        # prefetch center multipliers in x
-        bxi = bx[i]
+        # half-step coeffs in x for this i
+        bx_mh = bx_ip[i - 1] if i > 0 else None       # i-1/2
+        bx_ph = bx_ip[i] if i < nx - 1 else None      # i+1/2 (exists if i < nx-1)
+
         for j in range(ny):
             p = idx(i, j, ny)
-            byj = by[j]
 
-            # x half-step coefficients for this i
-            # i-1/2 exists if i>0, i+1/2 exists if i<nx-1
-            bx_mh = bx_ip[i - 1] if i > 0 else None
-            bx_ph = bx_ip[i] if i < nx - 1 else None
+            # half-step coeffs in y for this j
+            by_mh = by_jp[j - 1] if j > 0 else None   # j-1/2
+            by_ph = by_jp[j] if j < ny - 1 else None  # j+1/2
 
-            # y half-step coefficients for this j
-            by_mh = by_jp[j - 1] if j > 0 else None
-            by_ph = by_jp[j] if j < ny - 1 else None
-
-            # Flux-form contributions:
-            # x-part
+            # x contributions
             cxm = 0.0 + 0.0j
             cxp = 0.0 + 0.0j
             cxc = 0.0 + 0.0j
 
             if bx_mh is not None:
-                # coefficient multiplying u_{i-1,j}
-                cxm = -bxi * (-bx_mh) * inv_hx2
-                cxc += -bxi * (bx_mh) * inv_hx2
+                cxm = -bx_mh * inv_hx2
+                cxc += bx_mh * inv_hx2
             if bx_ph is not None:
-                # coefficient multiplying u_{i+1,j}
-                cxp = -bxi * (bx_ph) * inv_hx2
-                cxc += -bxi * (bx_ph) * inv_hx2
+                cxp = -bx_ph * inv_hx2
+                cxc += bx_ph * inv_hx2
 
-            # y-part
+            # y contributions
             cym = 0.0 + 0.0j
             cyp = 0.0 + 0.0j
             cyc = 0.0 + 0.0j
 
             if by_mh is not None:
-                cym = -byj * (-by_mh) * inv_hy2
-                cyc += -byj * (by_mh) * inv_hy2
+                cym = -by_mh * inv_hy2
+                cyc += by_mh * inv_hy2
             if by_ph is not None:
-                cyp = -byj * (by_ph) * inv_hy2
-                cyc += -byj * (by_ph) * inv_hy2
+                cyp = -by_ph * inv_hy2
+                cyc += by_ph * inv_hy2
 
-            # Total diagonal: (x + y) - k^2
+            # diagonal: x + y - k^2
             diag = (cxc + cyc) - complex(k2[i, j])
             add(p, p, diag)
 
-            # Off-diagonals (only add if neighbor exists)
+            # neighbors (only if exist)
             if i > 0:
                 add(p, idx(i - 1, j, ny), cxm)
             if i < nx - 1:

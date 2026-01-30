@@ -2,16 +2,24 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Tuple
+from typing import Tuple, Optional
 import numpy as np
 
 from core.grid import Grid2D, embed_in_extended
 
 
+# ============================
+# Utilities
+# ============================
+
 def _make_odd(n: int) -> int:
     n = int(n)
     return n if (n % 2 == 1) else (n + 1)
 
+
+# ============================
+# Physical grid from PPW
+# ============================
 
 def grid_from_ppw(
     *,
@@ -20,7 +28,7 @@ def grid_from_ppw(
     lx: float,
     ly: float,
     c_min: float = 1.0,
-    n_min: int = 1,
+    n_min: int = 2,
     make_odd: bool = True,
     x_min: float = 0.0,
     y_min: float = 0.0,
@@ -28,6 +36,11 @@ def grid_from_ppw(
     """
     Build a Grid2D such that spacing corresponds to at least `ppw`
     points per minimum wavelength (using conservative wavespeed c_min).
+
+    wavelength λ_min = 2π c_min / |ω|
+    target spacing h_target = λ_min / ppw
+
+    Ensures nx, ny >= n_min and optionally odd.
     """
     omega = float(omega)
     ppw = float(ppw)
@@ -45,7 +58,6 @@ def grid_from_ppw(
     if c_min <= 0.0:
         raise ValueError("c_min must be positive.")
     if n_min < 2:
-        # nx, ny must be >=2 for a valid grid (one interval)
         n_min = 2
 
     lam_min = 2.0 * np.pi * c_min / abs(omega)
@@ -64,6 +76,10 @@ def grid_from_ppw(
     return Grid2D(nx=nx, ny=ny, lx=lx, ly=ly, x_min=float(x_min), y_min=float(y_min))
 
 
+# ============================
+# Extended grid container
+# ============================
+
 @dataclass(frozen=True)
 class ExtendedGrid2D:
     """
@@ -75,6 +91,10 @@ class ExtendedGrid2D:
     grid_ext: Grid2D
     core_slices: Tuple[slice, slice]
 
+
+# ============================
+# True extension with PML collar
+# ============================
 
 def grid_from_ppw_with_pml_extension(
     *,
@@ -94,22 +114,23 @@ def grid_from_ppw_with_pml_extension(
 
     Physical domain:
         [x_min_phys, x_min_phys + lx] × [y_min_phys, y_min_phys + ly]
-    Extended computational domain adds a collar of `npml` nodes on each side.
-    In particular, if x_min_phys=y_min_phys=0, the PML begins at negative coordinates:
-        x_min_ext = -npml*hx, y_min_ext = -npml*hy
+    Extended computational domain adds a collar of `npml` grid points on each side.
 
-    Notes
-    -----
-    - Physical grid size is independent of npml.
-    - Extended grid uses the *same* spacings hx, hy as the physical grid.
-    - core_slices pick out the physical region inside the extended arrays.
+    Guarantees:
+      - grid_phys is exactly the physical domain location (not moved)
+      - grid_ext uses the same spacing hx, hy as grid_phys
+      - the physical region inside grid_ext is exactly core_slices
+
+    The extended origin is shifted so that the *interface* between left PML and core
+    is located at x = x_min_phys (and similarly for y). Thus if x_min_phys=0,
+    the left PML collar lies at negative coordinates.
     """
     npml = int(npml)
     if npml < 0:
         raise ValueError("npml must be >= 0")
 
-    # --- build physical grid (starts at origin if x_min_phys=y_min_phys=0) ---
-    grid_phys = grid_from_ppw(
+    # --- Build physical grid first (fixed location) ---
+    gphys = grid_from_ppw(
         omega=float(omega),
         ppw=float(ppw),
         lx=float(lx),
@@ -121,56 +142,64 @@ def grid_from_ppw_with_pml_extension(
         y_min=float(y_min_phys),
     )
 
-    nx_phys, ny_phys = int(grid_phys.nx), int(grid_phys.ny)
-    hx, hy = float(grid_phys.hx), float(grid_phys.hy)
+    nxp, nyp = int(gphys.nx), int(gphys.ny)
+    hx, hy = float(gphys.hx), float(gphys.hy)
 
-    # --- extended grid sizes ---
-    nx_ext = nx_phys + 2 * npml
-    ny_ext = ny_phys + 2 * npml
-    if nx_ext < 2 or ny_ext < 2:
+    # --- Build extended grid with same spacing ---
+    nxe = nxp + 2 * npml
+    nye = nyp + 2 * npml
+    if nxe < 2 or nye < 2:
         raise ValueError(
-            f"Extended grid too small: nx_ext={nx_ext}, ny_ext={ny_ext}. "
+            f"Extended grid too small: nx_ext={nxe}, ny_ext={nye}. "
             "Check npml and physical grid size."
         )
 
-    # --- extended physical lengths (keep spacing identical to physical grid) ---
+    # Same spacing -> extended lengths must match nxe, nye:
+    # lx_ext = (nxe-1)*hx = (nxp-1+2*npml)*hx = lx + 2*npml*hx
     lx_ext = float(lx) + 2.0 * npml * hx
     ly_ext = float(ly) + 2.0 * npml * hy
 
-    # --- shift origin so the collar lies outside the physical domain ---
-    # if x_min_phys=0, this makes x_min_ext negative and the physical region stays at [0,lx]
+    # Extend outward while keeping physical domain fixed
     x_min_ext = float(x_min_phys) - npml * hx
     y_min_ext = float(y_min_phys) - npml * hy
 
-    grid_ext = Grid2D(
-        nx=nx_ext,
-        ny=ny_ext,
-        lx=lx_ext,
-        ly=ly_ext,
-        x_min=x_min_ext,
-        y_min=y_min_ext,
+    gext = Grid2D(
+        nx=int(nxe),
+        ny=int(nye),
+        lx=float(lx_ext),
+        ly=float(ly_ext),
+        x_min=float(x_min_ext),
+        y_min=float(y_min_ext),
     )
 
-    # --- slices selecting the physical region inside extended arrays ---
-    si = slice(npml, npml + nx_phys)
-    sj = slice(npml, npml + ny_phys)
+    # --- Slices selecting physical region inside extended arrays ---
+    si = slice(npml, npml + nxp)  # x-index range of physical core
+    sj = slice(npml, npml + nyp)  # y-index range of physical core
 
-    # --- sanity checks: ensure physical coords are preserved exactly ---
-    # These require Grid2D to support x_min/y_min in mesh() / coordinate definitions.
-    try:
-        if abs((grid_ext.x_min + npml * hx) - grid_phys.x_min) > 1e-12:
-            raise ValueError("x_min mismatch: physical region not aligned inside extended grid.")
-        if abs((grid_ext.y_min + npml * hy) - grid_phys.y_min) > 1e-12:
-            raise ValueError("y_min mismatch: physical region not aligned inside extended grid.")
-    except Exception:
-        # If Grid2D doesn't expose x_min/y_min, ignore; alignment is still correct by construction.
-        pass
+    # --- Light sanity checks (do not swallow real coding errors) ---
+    # Only check if Grid2D exposes x_min/y_min/hx/hy.
+    if hasattr(gext, "x_min") and hasattr(gphys, "x_min"):
+        # core left boundary should coincide with physical x_min
+        core_left_x = float(gext.x_min) + npml * float(gext.hx)
+        if abs(core_left_x - float(gphys.x_min)) > 1e-12:
+            raise ValueError(
+                f"Alignment error: core_left_x={core_left_x} != gphys.x_min={gphys.x_min}"
+            )
 
-    return ExtendedGrid2D(grid_phys=grid_phys, grid_ext=grid_ext, core_slices=(si, sj))
+    if hasattr(gext, "y_min") and hasattr(gphys, "y_min"):
+        core_bot_y = float(gext.y_min) + npml * float(gext.hy)
+        if abs(core_bot_y - float(gphys.y_min)) > 1e-12:
+            raise ValueError(
+                f"Alignment error: core_bot_y={core_bot_y} != gphys.y_min={gphys.y_min}"
+            )
+
+    return ExtendedGrid2D(grid_phys=gphys, grid_ext=gext, core_slices=(si, sj))
 
 
+# ============================
+# Backwards-compatible wrapper
+# ============================
 
-# Backwards-compatible wrapper (optional)
 def embed_physical_field_in_extended(
     phys: np.ndarray,
     ext_shape: Tuple[int, int],
@@ -179,4 +208,13 @@ def embed_physical_field_in_extended(
     fill_value: float = 0.0,
     dtype=None,
 ) -> np.ndarray:
-    return embed_in_extended(phys, ext_shape, core_slices, fill_value=fill_value, dtype=dtype)
+    """
+    Backwards-compatible alias.
+    """
+    return embed_in_extended(
+        phys,
+        ext_shape,
+        core_slices,
+        fill_value=fill_value,
+        dtype=dtype,
+    )

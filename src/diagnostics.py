@@ -3,12 +3,14 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Literal, Optional, Tuple, Dict, Any
+from typing import Any, Dict, Literal, Optional, Sequence, Tuple
 
 import numpy as np
 import matplotlib.pyplot as plt
 
-from core.config import HelmholtzConfig
+# Prefer relative import when diagnostics.py lives in src/
+# If your file layout differs, adjust this line accordingly.
+from .core.config import HelmholtzConfig
 
 
 # -----------------------------
@@ -58,9 +60,6 @@ def _as_mode_array(U: np.ndarray, mode: str, eps: float) -> np.ndarray:
 def _resolve_extent(cfg: HelmholtzConfig) -> Optional[Tuple[float, float, float, float]]:
     """
     Return imshow extent = [xmin, xmax, ymin, ymax] if present on grid, else None.
-
-    This lets you plot in physical coordinates when your Grid2D defines
-    xmin/xmax/ymin/ymax, while still working if it doesn't.
     """
     g = cfg.grid
     if all(hasattr(g, a) for a in ("xmin", "xmax", "ymin", "ymax")):
@@ -74,6 +73,37 @@ def _reshape_field(cfg: HelmholtzConfig, u: np.ndarray) -> np.ndarray:
     if u.size != nx * ny:
         raise ValueError(f"u has size {u.size}, expected {nx*ny}.")
     return u.reshape(nx, ny)
+
+
+def _reshape_rhs_any(
+    f: np.ndarray,
+    *,
+    grid_shape: Optional[Tuple[int, int]] = None,
+    cfg: Optional[HelmholtzConfig] = None,
+) -> np.ndarray:
+    """
+    Reshape one RHS sample into (nx, ny).
+
+    Accepts:
+    - f as (nx, ny) already
+    - f as (nx*ny,)
+    """
+    if f.ndim == 2:
+        return f
+
+    if f.ndim != 1:
+        raise ValueError("RHS sample must be 1D (nx*ny,) or 2D (nx, ny).")
+
+    if cfg is not None:
+        nx, ny = int(cfg.grid.nx), int(cfg.grid.ny)
+    elif grid_shape is not None:
+        nx, ny = int(grid_shape[0]), int(grid_shape[1])
+    else:
+        raise ValueError("Provide either cfg=... or grid_shape=(nx, ny) to reshape RHS.")
+
+    if f.size != nx * ny:
+        raise ValueError(f"f has size {f.size}, expected {nx*ny}.")
+    return f.reshape(nx, ny)
 
 
 # -----------------------------
@@ -97,20 +127,6 @@ def plot_field(
 ) -> None:
     """
     Plot a 2D field u on cfg.grid.
-
-    Key improvements vs your draft:
-    - Accepts cfg (no need to pass nx/ny everywhere)
-    - Supports physical-coordinate extent if grid defines xmin/xmax/ymin/ymax
-    - Optional show/save behavior (works nicely in notebooks)
-
-    Parameters
-    ----------
-    path:
-        If provided, saves the figure to this path (parent dirs created).
-    show:
-        If True, calls plt.show() so notebooks display inline.
-    close:
-        If True, closes figure (avoid piling up in long notebook runs).
     """
     U = _reshape_field(cfg, u)
     Z = _as_mode_array(U, mode=mode, eps=log_eps)
@@ -212,6 +228,79 @@ def plot_spectrum(
 
 
 # -----------------------------
+# RHS visualization helpers
+# -----------------------------
+
+def plot_rhs_grid(
+    F: np.ndarray,
+    *,
+    cfg: Optional[HelmholtzConfig] = None,
+    grid_shape: Optional[Tuple[int, int]] = None,
+    nrows: int = 4,
+    ncols: int = 4,
+    mode: PlotMode = "abs",
+    log_eps: float = 1e-16,
+    title: str = "|f| (RHS samples)",
+    path: Optional[Path] = None,
+    show: bool = True,
+    close: bool = True,
+) -> None:
+    """
+    Plot a grid of RHS samples.
+
+    Parameters
+    ----------
+    F:
+        Either shape (N, nx*ny) or (N, nx, ny). Complex OK.
+    cfg or grid_shape:
+        Provide cfg (preferred) to infer nx/ny + extent labels, or grid_shape=(nx, ny).
+    """
+    if F.ndim == 2:
+        N = F.shape[0]
+    elif F.ndim == 3:
+        N = F.shape[0]
+    else:
+        raise ValueError("F must have shape (N, nx*ny) or (N, nx, ny).")
+
+    K = nrows * ncols
+    if N < K:
+        raise ValueError(f"Need at least {K} samples for a {nrows}x{ncols} grid; got N={N}.")
+
+    extent = _resolve_extent(cfg) if cfg is not None else None
+
+    fig, axes = plt.subplots(nrows, ncols, figsize=(10, 10), constrained_layout=True)
+
+    last_im = None
+    for k, ax in enumerate(axes.ravel()):
+        if F.ndim == 3:
+            U = F[k]
+        else:
+            U = _reshape_rhs_any(F[k], cfg=cfg, grid_shape=grid_shape)
+
+        Z = _as_mode_array(U, mode=mode, eps=log_eps)
+        last_im = ax.imshow(Z.T, origin="lower", aspect="auto", extent=extent)
+        ax.set_title(f"sid={k}", fontsize=9)
+        ax.set_xticks([])
+        ax.set_yticks([])
+
+    if last_im is not None:
+        cbar = fig.colorbar(last_im, ax=axes, shrink=0.75)
+        cbar.set_label(mode)
+
+    fig.suptitle(title)
+
+    if path is not None:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        fig.savefig(path, dpi=200)
+
+    if show:
+        plt.show()
+
+    if close:
+        plt.close(fig)
+
+
+# -----------------------------
 # PML visualization helpers
 # -----------------------------
 
@@ -278,20 +367,17 @@ def plot_pml_bounds(
         ax.set_xlabel("x")
         ax.set_ylabel("y")
 
-        # shaded PML
         ax.axvspan(xmin, xL, alpha=0.15)
         ax.axvspan(xR, xmax, alpha=0.15)
         ax.axhspan(ymin, yB, alpha=0.15)
         ax.axhspan(yT, ymax, alpha=0.15)
 
-        # interface lines
         ax.axvline(xL, ls="--", lw=1)
         ax.axvline(xR, ls="--", lw=1)
         ax.axhline(yB, ls="--", lw=1)
         ax.axhline(yT, ls="--", lw=1)
 
     else:
-        # Index-space fallback
         nx, ny = cfg.grid.nx, cfg.grid.ny
         xL = npml
         xR = nx - 1 - npml
@@ -425,7 +511,6 @@ def plot_solution_with_pml(
     ax.set_xlabel("x" if extent is not None else "i")
     ax.set_ylabel("y" if extent is not None else "j")
 
-    # overlay PML bounds
     if extent is not None:
         info = pml_interfaces_physical(cfg, npml=npml)
         if info is not None:
@@ -474,22 +559,6 @@ def plot_solution_with_pml(
 def reflection_metrics(U: np.ndarray, *, npml: int, band: int = 5) -> Dict[str, float]:
     """
     Quick proxy for PML performance.
-
-    Parameters
-    ----------
-    U : ndarray (nx, ny)
-        Field values (complex or real) on the grid.
-    npml : int
-        PML thickness in grid points.
-    band : int
-        Width of the measurement band near PML interface.
-
-    Returns
-    -------
-    dict with:
-        core_max   : max |U| well inside the domain (excluding PML + band)
-        iface_max  : max |U| in a band just inside the PML interface
-        iface/core: iface_max / core_max (smaller is better)
     """
     if U.ndim != 2:
         raise ValueError("U must be 2D (nx, ny).")
@@ -499,10 +568,8 @@ def reflection_metrics(U: np.ndarray, *, npml: int, band: int = 5) -> Dict[str, 
     if 2 * (npml + band) >= min(nx, ny):
         raise ValueError("npml+band too large for this grid.")
 
-    # interior region
     core = U[npml + band : nx - npml - band, npml + band : ny - npml - band]
 
-    # bands just inside PML
     left_band = U[npml : npml + band, :]
     right_band = U[nx - npml - band : nx - npml, :]
     bottom_band = U[:, npml : npml + band]
@@ -526,15 +593,6 @@ def reflection_metrics(U: np.ndarray, *, npml: int, band: int = 5) -> Dict[str, 
 def pml_leakage_proxy(cfg: HelmholtzConfig, u: np.ndarray, *, npml: Optional[int] = None) -> float:
     """
     Simple leakage proxy: average |u| in the PML region.
-
-    This is not a physical energy, but it's a useful scalar indicator:
-    - if PML works, |u| should decay in PML, and this average should be small.
-    - compare across parameter sweeps.
-
-    Returns
-    -------
-    float
-        mean(|u|) in PML region.
     """
     if npml is None:
         npml = pml_thickness_nodes(cfg)
@@ -553,3 +611,121 @@ def pml_leakage_proxy(cfg: HelmholtzConfig, u: np.ndarray, *, npml: Optional[int
     mask[:, ny - npml :] = True
 
     return float(np.mean(A[mask]))
+
+
+def grid_coords_1d(grid):
+    """Return 1D coordinate arrays (x[i], y[j]) consistent with grid.mesh()."""
+    x = np.linspace(0.0, float(grid.lx), int(grid.nx))
+    y = np.linspace(0.0, float(grid.ly), int(grid.ny))
+    return x, y
+
+
+def phys_to_index_nearest(grid, x0: float, y0: float) -> tuple[int, int]:
+    """Nearest grid node indices (i,j) for a physical point (x0,y0)."""
+    x, y = grid_coords_1d(grid)
+    i0 = int(np.argmin(np.abs(x - x0)))
+    j0 = int(np.argmin(np.abs(y - y0)))
+    return i0, j0
+
+def pml_slices_from_npml(npml: int, nx: int, ny: int) -> tuple[slice, slice]:
+    """Return interior/core slices for an extended grid with collar npml."""
+    return slice(npml, nx - npml), slice(npml, ny - npml)
+
+
+def plot_field_with_pml_overlay(
+    Z: np.ndarray,
+    *,
+    npml: int = 0,
+    title: str = "",
+    cmap: str | None = None,
+):
+    """
+    Plot a 2D scalar field (nx,ny) with dashed rectangle showing core region
+    if npml>0 (assumes Z is on an extended grid).
+    """
+    nx, ny = Z.shape
+    plt.figure()
+    plt.imshow(Z.T, origin="lower", aspect="auto", cmap=cmap)
+    plt.colorbar()
+    plt.title(title)
+
+    if npml > 0:
+        # draw rectangle for core region
+        x0, x1 = npml, nx - npml - 1
+        y0, y1 = npml, ny - npml - 1
+        plt.plot([x0, x1, x1, x0, x0], [y0, y0, y1, y1, y0], linestyle="--")
+
+    plt.tight_layout()
+    plt.show()
+
+
+def radial_profile_abs(U: np.ndarray, i0: int, j0: int, radii: list[int]) -> list[float]:
+    """
+    Simple radial profile proxy: mean(|U|) over a thin ring at each radius (in grid points).
+    U is (nx,ny).
+    """
+    nx, ny = U.shape
+    I = np.arange(nx)[:, None]
+    J = np.arange(ny)[None, :]
+    R = np.sqrt((I - i0) ** 2 + (J - j0) ** 2)
+
+    out = []
+    A = np.abs(U)
+    for r in radii:
+        band = (R >= (r - 0.5)) & (R < (r + 0.5))
+        out.append(float(A[band].mean()) if np.any(band) else float("nan"))
+    return out
+
+
+def reflection_metrics_physical(U_phys: np.ndarray, *, band: int = 5) -> dict:
+    """
+    Reflection proxy on the *physical* solution U_phys (nx,ny).
+    - core_max: max(|u|) in interior region excluding a boundary band
+    - iface_max: max(|u|) on a thin band near boundary
+    - iface/core: ratio (lower is better)
+    """
+    A = np.abs(U_phys)
+    nx, ny = A.shape
+    b = int(band)
+
+    if 2*b >= nx or 2*b >= ny:
+        raise ValueError(f"band too large: band={b}, shape={A.shape}")
+
+    core = A[b:-b, b:-b]
+    iface_mask = np.zeros_like(A, dtype=bool)
+    iface_mask[:b, :] = True
+    iface_mask[-b:, :] = True
+    iface_mask[:, :b] = True
+    iface_mask[:, -b:] = True
+
+    core_max = float(core.max())
+    iface_max = float(A[iface_mask].max())
+    ratio = float(iface_max / core_max) if core_max > 0 else float("nan")
+    return {"core_max": core_max, "iface_max": iface_max, "iface/core": ratio}
+
+
+def multi_source_sanity_check(
+    *,
+    solve_fn,                 # function that takes (x0,y0) or (i0,j0) and returns U_phys
+    sample_fn,                # function sampling locations
+    grid_phys,
+    rng: np.random.Generator,
+    n_trials: int,
+    radii: list[int],
+    band: int = 5,
+):
+    """
+    Run repeated solves with randomized source locations and return metrics list.
+    solve_fn should return U_phys (nx,ny) for a given sampled location.
+    """
+    results = []
+    for t in range(n_trials):
+        x0, y0 = sample_fn(grid_phys, rng)
+        U_phys = solve_fn(x0, y0)
+
+        met = reflection_metrics_physical(U_phys, band=band)
+        i0, j0 = phys_to_index_nearest(grid_phys, x0, y0)
+        prof = radial_profile_abs(U_phys, i0, j0, radii)
+
+        results.append({"t": t, "x0": x0, "y0": y0, **met, "radial": prof})
+    return results

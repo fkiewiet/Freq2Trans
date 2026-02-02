@@ -10,7 +10,12 @@ import matplotlib.pyplot as plt
 
 # Prefer relative import when diagnostics.py lives in src/
 # If your file layout differs, adjust this line accordingly.
-from .core.config import HelmholtzConfig
+try:
+    # when imported as part of a package (e.g., src.diagnostics)
+    from .core.config import HelmholtzConfig
+except ImportError:
+    # when imported as a top-level module (e.g., diagnostics)
+    from core.config import HelmholtzConfig
 
 
 # -----------------------------

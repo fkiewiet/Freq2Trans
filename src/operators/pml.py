@@ -135,10 +135,6 @@ def stretch_factors_from_sigma(sig: np.ndarray, omega: float) -> np.ndarray:
     return (1.0 + 1j * sig / float(omega)).astype(complex)
 
 
-# -----------------------------
-# Public API for your solver
-# -----------------------------
-
 def build_pml_profiles(
     cfg: HelmholtzConfig,
     *,
@@ -151,83 +147,120 @@ def build_pml_profiles(
     """
     Build (sig_x, sig_y, s_x, s_y) using cfg.pml + grid geometry.
 
-    This supports *either* of these config styles:
+    Supported configuration styles
+    ------------------------------
+    (A) "Eta-style" (recommended, matches your sweep results):
+        - thickness / npml: int
+        - power / m: int
+        - strength / eta: float      <-- interpreted as eta = sigma_max/|omega|
+      Then: sigma_max = |omega| * eta.
 
-    Style A (recommended):
-      cfg.pml.npml, cfg.pml.m, cfg.pml.R_target, cfg.pml.sigma_scale
-      and optional cfg.pml.sides (or cfg.pml.left/right/bottom/top)
+    (B) "MATLAB reflection-style" (strength depends on thickness):
+        - thickness / npml: int
+        - power / m: int
+        - R_target: float in (0,1)
+      Then:
+        Lpml = npml*h
+        sigma_max = - (power+1) * log(R_target) / (2*Lpml)
+        eta = sigma_max/|omega|
+      (This matches the typical MATLAB PML prescription.)
 
-    Style B (legacy, your current file):
-      cfg.pml.thickness, cfg.pml.power, cfg.pml.strength
+    (C) Backward compatibility (if someone explicitly provides sigma_max):
+        - sigma_max: float
+      Then use that directly.
 
-    Parameters
-    ----------
-    cfg : HelmholtzConfig
-    c_ref : float, optional
-        Reference wavespeed. If not provided, defaults to cfg.pml.c_ref if present,
-        otherwise 1.0. In variable media, pass min(c) from assemble site.
-    enable_* : bool, optional
-        Side toggles. If omitted, tries cfg.pml.<side> flags, else True.
+    Precedence (most explicit wins)
+    -------------------------------
+      1) cfg.pml.sigma_max (if present)  -> use directly
+      2) cfg.pml.R_target  (if present)  -> MATLAB thickness-based sigma_max
+      3) cfg.pml.eta or cfg.pml.strength -> interpret as eta
+      4) fallback                          -> eta = 0 (no PML)
 
-    Returns
-    -------
-    sig_x, sig_y : 1D float arrays
-    s_x, s_y : 1D complex arrays
+    Notes
+    -----
+    - Side toggles: function args override cfg.pml.<side> flags, else default True.
+    - We use h = max(hx, hy) for a conservative thickness Lpml.
     """
     if cfg.pml is None:
         raise ValueError("cfg.pml is None; cannot build PML profiles.")
 
-    nx, ny = cfg.grid.nx, cfg.grid.ny
-    hx, hy = cfg.grid.hx, cfg.grid.hy
+    # --- Grid geometry ---
+    nx, ny = int(cfg.grid.nx), int(cfg.grid.ny)
+    hx, hy = float(cfg.grid.hx), float(cfg.grid.hy)
     h = float(max(hx, hy))
 
-    # --- Read config (support both naming schemes) ---
-    # Thickness
+    # --- Read config (support multiple naming schemes) ---
     npml = int(_get(cfg.pml, "npml", "thickness", default=0))
-    # Polynomial order
-    m = int(_get(cfg.pml, "m", "power", default=3))
+    m = int(_get(cfg.pml, "m", "power", default=2))
 
-    # Reference c for nominal formula
-    c_ref_cfg = _get(cfg.pml, "c_ref", default=None)
-    c_ref_eff = float(c_ref if c_ref is not None else (c_ref_cfg if c_ref_cfg is not None else 1.0))
+    omega = float(cfg.omega)
+    omega_abs = float(abs(omega))
+    if omega_abs == 0.0:
+        raise ValueError("cfg.omega must be nonzero for PML stretch factors.")
 
-    # Strength: either explicit sigma_max ("strength"), or computed nominal * sigma_scale
-    strength = _get(cfg.pml, "strength", default=None)
-    if strength is not None:
-        sigma_max = float(strength)
-    else:
-        R_target = float(_get(cfg.pml, "R_target", default=1e-8))
-        sigma_scale = float(_get(cfg.pml, "sigma_scale", default=1.0))
-        sigma_max = sigma_scale * sigma_max_nominal(
-            c_ref=c_ref_eff,
-            omega=float(cfg.omega),
-            npml=npml,
-            h=h,
-            m=m,
-            R_target=R_target,
-        )
-
-    # Side toggles: function args override cfg.pml, otherwise default True
+    # --- Side toggles ---
     enable_left = _clamp_bool(enable_left, _clamp_bool(_get(cfg.pml, "left", default=None), True))
     enable_right = _clamp_bool(enable_right, _clamp_bool(_get(cfg.pml, "right", default=None), True))
     enable_bottom = _clamp_bool(enable_bottom, _clamp_bool(_get(cfg.pml, "bottom", default=None), True))
     enable_top = _clamp_bool(enable_top, _clamp_bool(_get(cfg.pml, "top", default=None), True))
 
-    # --- Build 1D sigmas ---
+    # --- Determine sigma_max (and implied eta) ---
+    # 1) Explicit sigma_max if present
+    sigma_max_explicit = _get(cfg.pml, "sigma_max", default=None)
+    if sigma_max_explicit is not None:
+        sigma_max = float(sigma_max_explicit)
+
+    else:
+        # 2) MATLAB-style: compute sigma_max from R_target and thickness
+        R_target = _get(cfg.pml, "R_target", default=None)
+        if R_target is not None:
+            R_target = float(R_target)
+            # sigma_max depends on Lpml=npml*h (thickness dependence)
+            sigma_max = sigma_max_from_reflection(
+                npml=npml,
+                h=h,
+                power=m,
+                R_target=R_target,
+            )
+
+        else:
+            # 3) Eta-style: strength/eta are treated as eta = sigma_max/|omega|
+            eta = _get(cfg.pml, "eta", "strength", default=0.0)
+            eta = float(eta)
+            sigma_max = omega_abs * eta
+
+    # Guard / short-circuit
+    if npml <= 0 or sigma_max <= 0.0:
+        sig_x = np.zeros(nx, dtype=float)
+        sig_y = np.zeros(ny, dtype=float)
+        sx = np.ones(nx, dtype=complex)
+        sy = np.ones(ny, dtype=complex)
+        return sig_x, sig_y, sx, sy
+
+    # --- Build 1D sigma profiles ---
     sig_x = pml_sigma_1d(
-        n=nx, npml=npml, sigma_max=sigma_max, m=m,
-        enable_left=enable_left, enable_right=enable_right
+        n=nx,
+        npml=npml,
+        sigma_max=sigma_max,
+        m=m,
+        enable_left=enable_left,
+        enable_right=enable_right,
     )
     sig_y = pml_sigma_1d(
-        n=ny, npml=npml, sigma_max=sigma_max, m=m,
-        enable_left=enable_bottom, enable_right=enable_top
+        n=ny,
+        npml=npml,
+        sigma_max=sigma_max,
+        m=m,
+        enable_left=enable_bottom,
+        enable_right=enable_top,
     )
 
     # --- Stretch factors ---
-    sx = stretch_factors_from_sigma(sig_x, float(cfg.omega))
-    sy = stretch_factors_from_sigma(sig_y, float(cfg.omega))
+    sx = stretch_factors_from_sigma(sig_x, omega)
+    sy = stretch_factors_from_sigma(sig_y, omega)
 
     return sig_x, sig_y, sx, sy
+
 
 
 def build_stretch_factors(cfg: HelmholtzConfig, *, c_ref: Optional[float] = None) -> Tuple[np.ndarray, np.ndarray]:
@@ -237,3 +270,89 @@ def build_stretch_factors(cfg: HelmholtzConfig, *, c_ref: Optional[float] = None
     """
     _, _, sx, sy = build_pml_profiles(cfg, c_ref=c_ref)
     return sx, sy
+
+
+def sigma_max_from_reflection(
+    *,
+    npml: int,
+    h: float,
+    power: int = 2,
+    R_target: float = 1e-8,
+) -> float:
+    """
+    MATLAB-style PML strength from target reflection.
+
+    Lpml = npml * h
+    sigma_max = - (power + 1) * log(R_target) / (2 * Lpml)
+
+    Notes
+    -----
+    - This is the formula your professor uses.
+    - Thicker PML (larger npml or h) -> smaller sigma_max (weaker damping per unit length).
+    - Units: consistent with stretch factor s = 1 + i*sigma/omega.
+
+    Parameters
+    ----------
+    npml : int
+        PML thickness in grid points.
+    h : float
+        Grid spacing (use max(hx, hy) for conservative).
+    power : int
+        Polynomial grading order p (your "power", default 2).
+    R_target : float
+        Desired reflection coefficient, e.g. 1e-8.
+
+    Returns
+    -------
+    sigma_max : float
+        Maximum sigma at the boundary.
+    """
+    npml = int(npml)
+    if npml <= 0:
+        return 0.0
+    h = float(h)
+    if h <= 0.0:
+        raise ValueError("h must be > 0")
+    power = int(power)
+    if power < 1:
+        raise ValueError("power must be >= 1")
+    R_target = float(R_target)
+    if not (0.0 < R_target < 1.0):
+        raise ValueError("R_target must be in (0,1)")
+
+    Lpml = npml * h
+    return float(-(power + 1) * np.log(R_target) / (2.0 * Lpml))
+
+
+def eta_from_reflection(
+    *,
+    omega: float,
+    npml: int,
+    h: float,
+    power: int = 2,
+    R_target: float = 1e-8,
+) -> float:
+    """
+    Dimensionless eta corresponding to MATLAB sigma_max.
+
+    eta := sigma_max / |omega|
+
+    This is the quantity you tuned in your sweeps (e.g. eta=6).
+    If you compute eta this way, then eta automatically depends on thickness.
+
+    Returns
+    -------
+    eta : float
+        Dimensionless eta = sigma_max/|omega|.
+    """
+    omega_abs = float(abs(omega))
+    if omega_abs == 0.0:
+        raise ValueError("omega must be nonzero")
+
+    sigma_max = sigma_max_from_reflection(
+        npml=int(npml),
+        h=float(h),
+        power=int(power),
+        R_target=float(R_target),
+    )
+    return float(sigma_max / omega_abs)

@@ -10,8 +10,10 @@ from .grid import Grid2D
 @dataclass(frozen=True)
 class PMLConfig:
     thickness: int
-    strength: float
+    strength: float         # interpret as eta
     power: float = 2.0
+    R_target: float | None = None
+
 
 @dataclass(frozen=True)
 class HelmholtzConfig:

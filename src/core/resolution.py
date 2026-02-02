@@ -2,24 +2,16 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Tuple, Optional
+from typing import Tuple
 import numpy as np
 
-from core.grid import Grid2D, embed_in_extended
+from core.grid import Grid2D
 
-
-# ============================
-# Utilities
-# ============================
 
 def _make_odd(n: int) -> int:
     n = int(n)
     return n if (n % 2 == 1) else (n + 1)
 
-
-# ============================
-# Physical grid from PPW
-# ============================
 
 def grid_from_ppw(
     *,
@@ -28,7 +20,7 @@ def grid_from_ppw(
     lx: float,
     ly: float,
     c_min: float = 1.0,
-    n_min: int = 2,
+    n_min: int = 1,
     make_odd: bool = True,
     x_min: float = 0.0,
     y_min: float = 0.0,
@@ -36,11 +28,6 @@ def grid_from_ppw(
     """
     Build a Grid2D such that spacing corresponds to at least `ppw`
     points per minimum wavelength (using conservative wavespeed c_min).
-
-    wavelength λ_min = 2π c_min / |ω|
-    target spacing h_target = λ_min / ppw
-
-    Ensures nx, ny >= n_min and optionally odd.
     """
     omega = float(omega)
     ppw = float(ppw)
@@ -76,10 +63,6 @@ def grid_from_ppw(
     return Grid2D(nx=nx, ny=ny, lx=lx, ly=ly, x_min=float(x_min), y_min=float(y_min))
 
 
-# ============================
-# Extended grid container
-# ============================
-
 @dataclass(frozen=True)
 class ExtendedGrid2D:
     """
@@ -91,10 +74,6 @@ class ExtendedGrid2D:
     grid_ext: Grid2D
     core_slices: Tuple[slice, slice]
 
-
-# ============================
-# True extension with PML collar
-# ============================
 
 def grid_from_ppw_with_pml_extension(
     *,
@@ -114,22 +93,19 @@ def grid_from_ppw_with_pml_extension(
 
     Physical domain:
         [x_min_phys, x_min_phys + lx] × [y_min_phys, y_min_phys + ly]
-    Extended computational domain adds a collar of `npml` grid points on each side.
 
-    Guarantees:
-      - grid_phys is exactly the physical domain location (not moved)
-      - grid_ext uses the same spacing hx, hy as grid_phys
-      - the physical region inside grid_ext is exactly core_slices
+    Extended domain adds `npml` nodes on each side, using the SAME hx,hy.
+    Thus:
+        x_min_ext = x_min_phys - npml*hx
+        y_min_ext = y_min_phys - npml*hy
 
-    The extended origin is shifted so that the *interface* between left PML and core
-    is located at x = x_min_phys (and similarly for y). Thus if x_min_phys=0,
-    the left PML collar lies at negative coordinates.
+    core_slices select the physical region inside extended arrays.
     """
     npml = int(npml)
     if npml < 0:
         raise ValueError("npml must be >= 0")
 
-    # --- Build physical grid first (fixed location) ---
+    # 1) Build physical grid at the desired location
     gphys = grid_from_ppw(
         omega=float(omega),
         ppw=float(ppw),
@@ -145,21 +121,17 @@ def grid_from_ppw_with_pml_extension(
     nxp, nyp = int(gphys.nx), int(gphys.ny)
     hx, hy = float(gphys.hx), float(gphys.hy)
 
-    # --- Build extended grid with same spacing ---
+    # 2) Extended sizes (collar adds points)
     nxe = nxp + 2 * npml
     nye = nyp + 2 * npml
     if nxe < 2 or nye < 2:
-        raise ValueError(
-            f"Extended grid too small: nx_ext={nxe}, ny_ext={nye}. "
-            "Check npml and physical grid size."
-        )
+        raise ValueError(f"Extended grid too small: {nxe}×{nye}")
 
-    # Same spacing -> extended lengths must match nxe, nye:
-    # lx_ext = (nxe-1)*hx = (nxp-1+2*npml)*hx = lx + 2*npml*hx
-    lx_ext = float(lx) + 2.0 * npml * hx
-    ly_ext = float(ly) + 2.0 * npml * hy
+    # 3) Extended physical lengths (consistent spacing)
+    lx_ext = float(gphys.lx) + 2.0 * npml * hx
+    ly_ext = float(gphys.ly) + 2.0 * npml * hy
 
-    # Extend outward while keeping physical domain fixed
+    # 4) Extended domain origin shifted OUTWARD so physical region stays fixed
     x_min_ext = float(x_min_phys) - npml * hx
     y_min_ext = float(y_min_phys) - npml * hy
 
@@ -172,49 +144,156 @@ def grid_from_ppw_with_pml_extension(
         y_min=float(y_min_ext),
     )
 
-    # --- Slices selecting physical region inside extended arrays ---
-    si = slice(npml, npml + nxp)  # x-index range of physical core
-    sj = slice(npml, npml + nyp)  # y-index range of physical core
-
-    # --- Light sanity checks (do not swallow real coding errors) ---
-    # Only check if Grid2D exposes x_min/y_min/hx/hy.
-    if hasattr(gext, "x_min") and hasattr(gphys, "x_min"):
-        # core left boundary should coincide with physical x_min
-        core_left_x = float(gext.x_min) + npml * float(gext.hx)
-        if abs(core_left_x - float(gphys.x_min)) > 1e-12:
-            raise ValueError(
-                f"Alignment error: core_left_x={core_left_x} != gphys.x_min={gphys.x_min}"
-            )
-
-    if hasattr(gext, "y_min") and hasattr(gphys, "y_min"):
-        core_bot_y = float(gext.y_min) + npml * float(gext.hy)
-        if abs(core_bot_y - float(gphys.y_min)) > 1e-12:
-            raise ValueError(
-                f"Alignment error: core_bot_y={core_bot_y} != gphys.y_min={gphys.y_min}"
-            )
+    # 5) Slices that pick out the physical region inside extended arrays
+    si = slice(npml, npml + nxp)
+    sj = slice(npml, npml + nyp)
 
     return ExtendedGrid2D(grid_phys=gphys, grid_ext=gext, core_slices=(si, sj))
 
 
-# ============================
-# Backwards-compatible wrapper
-# ============================
 
-def embed_physical_field_in_extended(
-    phys: np.ndarray,
-    ext_shape: Tuple[int, int],
-    core_slices: Tuple[slice, slice],
+# ---- NEW: utilities for refinement pairs (omega_high, omega_low) ----
+
+def _wavelength_min(*, omega: float, c_min: float) -> float:
+    omega = float(omega)
+    if omega == 0.0:
+        raise ValueError("omega must be nonzero.")
+    return 2.0 * np.pi * float(c_min) / abs(omega)
+
+
+def grid_from_ppw_pair(
     *,
-    fill_value: float = 0.0,
-    dtype=None,
-) -> np.ndarray:
+    omega_high: float,
+    omega_low: float,
+    ppw: float,
+    lx: float,
+    ly: float,
+    c_min: float = 1.0,
+    n_min: int = 201,
+    make_odd: bool = True,
+    x_min: float = 0.0,
+    y_min: float = 0.0,
+    n_waves_min: float = 10.0,
+    strict_waves: bool = False,
+) -> Grid2D:
     """
-    Backwards-compatible alias.
+    Build ONE physical grid for a refinement run (omega_high, omega_low),
+    choosing resolution from omega_ref = max(|omega_high|, |omega_low|).
+
+    - ppw criterion is enforced via grid_from_ppw with omega_ref
+    - checks that the domain contains at least `n_waves_min` wavelengths
+      across BOTH x and y (using omega_ref). This is a *physics/domain-size*
+      sanity check (grid refinement cannot fix it).
+
+    If strict_waves=True, raises ValueError when the wavelength-count check fails.
+    Otherwise prints a warning and continues.
     """
-    return embed_in_extended(
-        phys,
-        ext_shape,
-        core_slices,
-        fill_value=fill_value,
-        dtype=dtype,
+    omega_ref = float(max(abs(omega_high), abs(omega_low)))
+    lam = _wavelength_min(omega=omega_ref, c_min=c_min)
+
+    nwx = float(lx) / lam
+    nwy = float(ly) / lam
+    if (nwx < n_waves_min) or (nwy < n_waves_min):
+        msg = (
+            f"Domain has too few wavelengths for omega_ref={omega_ref:g}: "
+            f"Lx/λ={nwx:.2f}, Ly/λ={nwy:.2f} (need ≥{n_waves_min}). "
+            "This is a domain-size issue, not a discretization issue."
+        )
+        if strict_waves:
+            raise ValueError(msg)
+        else:
+            print("⚠️ " + msg)
+
+    return grid_from_ppw(
+        omega=omega_ref,
+        ppw=float(ppw),
+        lx=float(lx),
+        ly=float(ly),
+        c_min=float(c_min),
+        n_min=int(n_min),
+        make_odd=bool(make_odd),
+        x_min=float(x_min),
+        y_min=float(y_min),
     )
+
+
+def extend_with_pml(
+    *,
+    gphys: Grid2D,
+    npml: int,
+    x_min_phys: float = 0.0,
+    y_min_phys: float = 0.0,
+) -> ExtendedGrid2D:
+    """
+    Pure geometry: take an existing physical grid and add a true collar PML.
+
+    Uses the same hx,hy as gphys. Physical region stays fixed in space.
+    """
+    npml = int(npml)
+    if npml < 0:
+        raise ValueError("npml must be >= 0")
+
+    nxp, nyp = int(gphys.nx), int(gphys.ny)
+    hx, hy = float(gphys.hx), float(gphys.hy)
+
+    nxe = nxp + 2 * npml
+    nye = nyp + 2 * npml
+    if nxe < 2 or nye < 2:
+        raise ValueError(f"Extended grid too small: {nxe}×{nye}")
+
+    lx_ext = float(gphys.lx) + 2.0 * npml * hx
+    ly_ext = float(gphys.ly) + 2.0 * npml * hy
+
+    x_min_ext = float(x_min_phys) - npml * hx
+    y_min_ext = float(y_min_phys) - npml * hy
+
+    gext = Grid2D(
+        nx=int(nxe),
+        ny=int(nye),
+        lx=float(lx_ext),
+        ly=float(ly_ext),
+        x_min=float(x_min_ext),
+        y_min=float(y_min_ext),
+    )
+
+    si = slice(npml, npml + nxp)
+    sj = slice(npml, npml + nyp)
+
+    return ExtendedGrid2D(grid_phys=gphys, grid_ext=gext, core_slices=(si, sj))
+
+
+def extended_grid_for_pair(
+    *,
+    omega_high: float,
+    omega_low: float,
+    ppw: float,
+    lx: float,
+    ly: float,
+    npml: int,
+    c_min: float = 1.0,
+    n_min_phys: int = 201,
+    make_odd_phys: bool = True,
+    x_min_phys: float = 0.0,
+    y_min_phys: float = 0.0,
+    n_waves_min: float = 10.0,
+    strict_waves: bool = False,
+) -> ExtendedGrid2D:
+    """
+    One-call convenience: build a physical grid for (omega_high, omega_low)
+    using omega_ref=max(|.|), then extend with a PML collar.
+    """
+    gphys = grid_from_ppw_pair(
+        omega_high=float(omega_high),
+        omega_low=float(omega_low),
+        ppw=float(ppw),
+        lx=float(lx),
+        ly=float(ly),
+        c_min=float(c_min),
+        n_min=int(n_min_phys),
+        make_odd=bool(make_odd_phys),
+        x_min=float(x_min_phys),
+        y_min=float(y_min_phys),
+        n_waves_min=float(n_waves_min),
+        strict_waves=bool(strict_waves),
+    )
+    return extend_with_pml(gphys=gphys, npml=int(npml), x_min_phys=float(x_min_phys), y_min_phys=float(y_min_phys))

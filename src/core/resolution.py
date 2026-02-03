@@ -297,3 +297,122 @@ def extended_grid_for_pair(
         strict_waves=bool(strict_waves),
     )
     return extend_with_pml(gphys=gphys, npml=int(npml), x_min_phys=float(x_min_phys), y_min_phys=float(y_min_phys))
+
+
+
+@dataclass(frozen=True)
+class ResolutionReport:
+    omega: float
+    c_min: float
+    ppw_target: float
+    waves_target: float
+    lam: float
+    h_target: float
+    waves_x: float
+    waves_y: float
+    ppw_x: float
+    ppw_y: float
+    ok_waves: bool
+    ok_ppw: bool
+
+
+def min_omega_for_waves(*, lx: float, ly: float, c_min: float = 1.0, n_waves: float = 10.0) -> float:
+    """
+    Minimum |omega| such that the domain contains at least n_waves wavelengths
+    along BOTH x and y (conservative: uses min(lx,ly)).
+
+        L / lambda >= n_waves
+        lambda = 2*pi*c_min/|omega|
+        => |omega| >= 2*pi*c_min*n_waves / L
+    """
+    L = float(min(lx, ly))
+    if L <= 0:
+        raise ValueError("lx, ly must be positive.")
+    if c_min <= 0:
+        raise ValueError("c_min must be positive.")
+    if n_waves <= 0:
+        raise ValueError("n_waves must be positive.")
+    return float(2.0 * np.pi * float(c_min) * float(n_waves) / L)
+
+
+def build_grid_meeting_ppw(
+    *,
+    omega: float,
+    lx: float,
+    ly: float,
+    c_min: float = 1.0,
+    ppw_min: float = 10.0,
+    n_min: int = 1,
+    make_odd: bool = True,
+    x_min: float = 0.0,
+    y_min: float = 0.0,
+) -> tuple[Grid2D, ResolutionReport]:
+    """
+    Build a grid that guarantees at least ppw_min points per wavelength
+    w.r.t. conservative c_min.
+
+    Also returns a report with:
+    - achieved ppw in each direction
+    - achieved number of wavelengths across lx and ly
+    - boolean checks for the 10-wavelength condition + ppw condition
+    """
+    omega = float(omega)
+    if omega == 0.0:
+        raise ValueError("omega must be nonzero.")
+    lx = float(lx); ly = float(ly)
+    c_min = float(c_min)
+    ppw_min = float(ppw_min)
+
+    lam = 2.0 * np.pi * c_min / abs(omega)
+    h_target = lam / ppw_min
+
+    # points count to meet h_target
+    nx = int(np.ceil(lx / h_target)) + 1
+    ny = int(np.ceil(ly / h_target)) + 1
+
+    nx = max(nx, int(n_min))
+    ny = max(ny, int(n_min))
+
+    if make_odd:
+        nx = nx if nx % 2 == 1 else nx + 1
+        ny = ny if ny % 2 == 1 else ny + 1
+
+    g = Grid2D(nx=nx, ny=ny, lx=lx, ly=ly, x_min=float(x_min), y_min=float(y_min))
+
+    # achieved numbers (based on actual hx/hy)
+    waves_x = lx / lam
+    waves_y = ly / lam
+    ppw_x = lam / float(g.hx)
+    ppw_y = lam / float(g.hy)
+
+    report = ResolutionReport(
+        omega=omega,
+        c_min=c_min,
+        ppw_target=ppw_min,
+        waves_target=10.0,
+        lam=lam,
+        h_target=h_target,
+        waves_x=waves_x,
+        waves_y=waves_y,
+        ppw_x=ppw_x,
+        ppw_y=ppw_y,
+        ok_waves=(waves_x >= 10.0 and waves_y >= 10.0),
+        ok_ppw=(ppw_x >= ppw_min and ppw_y >= ppw_min),
+    )
+    return g, report
+
+
+def assert_frequency_feasible_for_domain(
+    *, omega: float, lx: float, ly: float, c_min: float = 1.0, n_waves: float = 10.0
+) -> None:
+    """
+    Raise a clear error if the 10-wavelength requirement cannot be met
+    for the given omega and domain size.
+    """
+    omega = float(omega)
+    wmin = min_omega_for_waves(lx=lx, ly=ly, c_min=c_min, n_waves=n_waves)
+    if abs(omega) < wmin:
+        raise ValueError(
+            f"10-wavelength requirement violated: |omega|={abs(omega):g} < omega_min={wmin:g}. "
+            f"Either increase domain size, increase omega, or lower n_waves."
+        )

@@ -416,3 +416,77 @@ def assert_frequency_feasible_for_domain(
             f"10-wavelength requirement violated: |omega|={abs(omega):g} < omega_min={wmin:g}. "
             f"Either increase domain size, increase omega, or lower n_waves."
         )
+
+
+def grid_fixed_n_with_pml_extension(
+    *,
+    n_phys: int,
+    lx: float,
+    ly: float,
+    npml: int,
+    x_min_phys: float = 0.0,
+    y_min_phys: float = 0.0,
+) -> "ExtendedGrid2D":
+    """
+    Build a *fixed-size* physical grid (n_phys x n_phys) plus a true PML collar
+    of npml nodes on each side (same spacing hx/hy).
+
+    Returns ExtendedGrid2D with:
+      - grid_phys: physical grid
+      - grid_ext: extended grid (collar)
+      - core_slices: (si, sj) picking out physical region in extended arrays
+
+    Convention (matches your existing ppw extension):
+      si corresponds to x-index slice, sj corresponds to y-index slice.
+      For arrays indexed as [y, x], use f_ext[sj, si] to embed.
+    """
+    n_phys = int(n_phys)
+    npml = int(npml)
+    lx = float(lx)
+    ly = float(ly)
+
+    if n_phys < 2:
+        raise ValueError("n_phys must be >= 2")
+    if npml < 0:
+        raise ValueError("npml must be >= 0")
+    if lx <= 0 or ly <= 0:
+        raise ValueError("lx, ly must be positive")
+
+    # Physical grid
+    gphys = Grid2D(
+        nx=n_phys,
+        ny=n_phys,
+        lx=lx,
+        ly=ly,
+        x_min=float(x_min_phys),
+        y_min=float(y_min_phys),
+    )
+
+    hx, hy = float(gphys.hx), float(gphys.hy)
+
+    # Extended grid sizes
+    nxe = n_phys + 2 * npml
+    nye = n_phys + 2 * npml
+
+    # Extended grid physical lengths (consistent spacing)
+    lx_ext = lx + 2.0 * npml * hx
+    ly_ext = ly + 2.0 * npml * hy
+
+    # Extended origin shifted outward so physical region stays fixed
+    x_min_ext = float(x_min_phys) - npml * hx
+    y_min_ext = float(y_min_phys) - npml * hy
+
+    gext = Grid2D(
+        nx=nxe,
+        ny=nye,
+        lx=lx_ext,
+        ly=ly_ext,
+        x_min=x_min_ext,
+        y_min=y_min_ext,
+    )
+
+    # Slices picking physical part inside extended
+    si = slice(npml, npml + n_phys)  # x / i
+    sj = slice(npml, npml + n_phys)  # y / j
+
+    return ExtendedGrid2D(grid_phys=gphys, grid_ext=gext, core_slices=(si, sj))

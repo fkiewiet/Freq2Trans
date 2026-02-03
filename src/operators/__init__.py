@@ -49,4 +49,5 @@ __all__ = [
     "build_pml_profiles",
     "build_stretch_factors",
     "build_pml_profiles_from_grid",
+    "choose_pml_params_fixed_grid",
 ]

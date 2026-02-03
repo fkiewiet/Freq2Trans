@@ -356,3 +356,82 @@ def eta_from_reflection(
         R_target=float(R_target),
     )
     return float(sigma_max / omega_abs)
+
+
+# --- add to operators/pml.py ---
+
+
+
+def choose_pml_params_fixed_grid(
+    *,
+    omega: float,
+    lx: float,
+    n_phys: int,
+    c_ref: float = 1.0,
+    m: int = 2,
+    R_target: float = 1e-8,
+    omega_min_for_pml: float = 64.0,
+    n_waves_pml: float = 1.5,
+    npml_min: int = 20,
+) -> tuple[int, float, int]:
+    """
+    Choose (npml, sigma_max, m) for a fixed physical grid of size n_phys x n_phys.
+
+    - Physical grid spacing: h = lx/(n_phys-1)
+    - Size PML thickness in *wavelengths* at omega_min_for_pml:
+        L_pml >= n_waves_pml * lambda(omega_min_for_pml)
+      where lambda = 2*pi*c_ref/omega_min_for_pml
+
+    - Compute sigma_max from thickness and target reflection:
+        sigma_max = 0.5 * (m+1) * c_ref * ln(1/R_target) / L_pml
+
+    Notes:
+      This makes sigma_max *depend on thickness* (npml*h), like the MATLAB approach.
+    """
+    omega = float(omega)
+    lx = float(lx)
+    n_phys = int(n_phys)
+    c_ref = float(c_ref)
+    m = int(m)
+    R_target = float(R_target)
+    omega_min_for_pml = float(omega_min_for_pml)
+    n_waves_pml = float(n_waves_pml)
+    npml_min = int(npml_min)
+
+    if n_phys < 2:
+        raise ValueError("n_phys must be >= 2")
+    if lx <= 0:
+        raise ValueError("lx must be positive")
+    if c_ref <= 0:
+        raise ValueError("c_ref must be positive")
+    if m < 1:
+        raise ValueError("m must be >= 1")
+    if not (0.0 < R_target < 1.0):
+        raise ValueError("R_target must be in (0,1)")
+    if omega_min_for_pml <= 0:
+        raise ValueError("omega_min_for_pml must be > 0")
+    if n_waves_pml <= 0:
+        raise ValueError("n_waves_pml must be > 0")
+    if npml_min < 0:
+        raise ValueError("npml_min must be >= 0")
+
+    # Fixed spacing
+    h = lx / (n_phys - 1)
+
+    # Wavelength at sizing frequency
+    lam = 2.0 * np.pi * c_ref / omega_min_for_pml
+
+    # Choose npml so L_pml >= n_waves_pml * lam
+    L_pml_target = n_waves_pml * lam
+    npml = int(np.ceil(L_pml_target / h))
+    npml = max(npml, npml_min)
+
+    # Actual thickness
+    L_pml = npml * h
+    if L_pml <= 0:
+        return 0, 0.0, m
+
+    # Thickness-based sigma_max (matches your sigma_max_nominal form up to conventions)
+    sigma_max = 0.5 * (m + 1) * c_ref * np.log(1.0 / R_target) / L_pml
+
+    return int(npml), float(sigma_max), int(m)

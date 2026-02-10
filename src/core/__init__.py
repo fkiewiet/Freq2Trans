@@ -13,4 +13,8 @@ __all__ = [
     "make_default_cases",
     "grid_from_ppw",
     "achieved_ppw",
+    "sample_single_source",
+    "build_rhs_from_source",
+    "save_sample_npz",
+    "generate_split_fixed500_1src",
 ]

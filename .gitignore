@@ -34,3 +34,21 @@ Thumbs.db
 build/
 dist/
 *.egg-info/
+
+# Ignore model weights
+*.pt
+*.pth
+checkpoints/
+
+# Ignore results and large logs
+results/
+experiment_logs/
+*.txt
+*.csv
+*.ipynb_checkpoints
+
+# Ignore data caches
+data_cache/
+lame-data/
+
+

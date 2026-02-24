@@ -19,11 +19,15 @@ parser.add_argument("--kernel", type=int, default=3, help="Kernel size (e.g., 3 
 parser.add_argument("--epochs", type=int, default=100)
 parser.add_argument("--lr", type=float, default=1e-4)
 parser.add_argument("--batch_size", type=int, default=4)
+parser.add_argument("--npml", type=int, default=112, help="PML thickness")
+parser.add_argument("--eta", type=float, default=50.0, help="Frequency damping factor")
+
 args = parser.parse_args()
 
 # Physics Constants
-NPML = 112
-ETA = 50.0
+# Change these:
+NPML = args.npml
+ETA = args.eta
 GRID_SIZE = 512
 
 # Organization: Create folder under experiments/

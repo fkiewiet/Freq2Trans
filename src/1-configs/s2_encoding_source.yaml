@@ -1,0 +1,9 @@
+experiment_id: "EXP_S2_REP"
+objective: "Fourier Encoding vs Linear and Point vs Gaussian Bump"
+parameters:
+  omega: 64.0
+  npml: 112
+  encodings: ["fourier", "linear"]
+  sources: ["point", "gaussian"]
+  sigma_g: 2.0
+  epochs: 1500

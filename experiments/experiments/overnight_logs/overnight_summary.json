@@ -1,0 +1,12 @@
+{
+  "timestamp": "2026-02-16 17:50:43",
+  "decisions": [
+    "Continue baseline with more epochs (validation still improving)."
+  ],
+  "final_metrics": {
+    "T_up_val_mse": 3.47723586036075e-11,
+    "T_down_val_mse": 6.650647914330232e-12,
+    "T_up_test_mse": 3.477100551929624e-11,
+    "T_down_test_mse": 6.652331029782799e-12
+  }
+}

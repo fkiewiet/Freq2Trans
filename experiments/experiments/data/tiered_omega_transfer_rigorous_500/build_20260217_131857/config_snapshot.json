@@ -1,0 +1,71 @@
+{
+  "run_tag": "20260217_131857",
+  "run_cfg": {
+    "seed": 42,
+    "n_tot_target": 500,
+    "n_train": 12,
+    "n_val": 4,
+    "n_test": 4,
+    "n_src_min": 3,
+    "n_src_max": 6,
+    "source_margin": 16,
+    "source_amp_min": 1.0,
+    "source_amp_max": 2.0,
+    "stencil_order": 2
+  },
+  "tiers": [
+    {
+      "label": "Tier A",
+      "omega_low": 16,
+      "omega_high": 32,
+      "purpose": "Baseline Calibration (Mastery Level)."
+    },
+    {
+      "label": "Tier B",
+      "omega_low": 32,
+      "omega_high": 64,
+      "purpose": "Complexity Test (Scaling properties)."
+    },
+    {
+      "label": "Tier C",
+      "omega_low": 64,
+      "omega_high": 128,
+      "purpose": "Stress Test (Numerical dispersion limit)."
+    }
+  ],
+  "pml_config": {
+    "16": {
+      "npml": 104,
+      "eta": 70.0
+    },
+    "32": {
+      "npml": 88,
+      "eta": 110.0
+    },
+    "64": {
+      "npml": 72,
+      "eta": 190.0
+    },
+    "128": {
+      "npml": 60,
+      "eta": 320.0
+    }
+  },
+  "split_plan": [
+    [
+      "train",
+      240,
+      0
+    ],
+    [
+      "val",
+      60,
+      10000
+    ],
+    [
+      "test",
+      60,
+      20000
+    ]
+  ]
+}

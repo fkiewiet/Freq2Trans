@@ -1,0 +1,8 @@
+experiment_id: "EXP_S4_STRESS"
+objective: "High-frequency scaling: 64 to 128 and 32 to 64"
+parameters:
+  ranges: [[64, 128], [128, 64], [32, 64]]
+  pml_strategy: "hybrid"
+  npml: 112
+  source_type: "gaussian"
+  epochs: 2000

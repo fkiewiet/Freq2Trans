@@ -1,0 +1,8 @@
+experiment_id: "EXP_S3_SCALE_LOW"
+objective: "Bidirectional transfer: 16-32 and 32-16"
+parameters:
+  ranges: [[16, 32], [32, 16], [20, 40], [40, 20]]
+  pml_strategy: "hybrid"
+  encoding: "fourier"
+  direction_channel: True
+  epochs: 2000

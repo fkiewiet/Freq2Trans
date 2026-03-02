@@ -1,0 +1,11 @@
+experiment_id: "EXP_S1_PML"
+objective: "PML strategy comparison: Thickness vs Freq vs Hybrid"
+server: "wave6"
+parameters:
+  omega: 64.0
+  npml: 112
+  # Strategies: 1: thickness, 2: frequency, 3: hybrid, 4: hardcoded
+  pml_strategies: ["thickness", "frequency", "hybrid", "hardcoded"]
+  source_type: "point"
+  epochs: 2000
+  learning_rate: 0.00011

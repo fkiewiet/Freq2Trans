@@ -1,0 +1,32 @@
+{
+  "run_cfg": {
+    "seed": 42,
+    "n_tot": 500,
+    "n_train": 240,
+    "n_val": 60,
+    "n_test": 60,
+    "n_src_min": 3,
+    "n_src_max": 6,
+    "source_margin": 16,
+    "source_amp_min": 1.0,
+    "source_amp_max": 2.0,
+    "stencil_order": 2,
+    "epochs": 100,
+    "batch_size": 2,
+    "lr": 0.001,
+    "weight_decay": 1e-06,
+    "scheduler_patience": 8,
+    "scheduler_factor": 0.5,
+    "early_stop_patience": 15,
+    "grad_clip": 1.0
+  },
+  "unified_pml": {
+    "npml": 104,
+    "eta": 70.0,
+    "pml_power": 2.0
+  },
+  "active_tiers": [
+    "Tier A"
+  ],
+  "note": "Plain CNN robust setup with normalization/scheduler/early-stop"
+}

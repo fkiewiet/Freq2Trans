@@ -1,2 +1,12 @@
+# Core Frameworks
+torch>=2.0.0
+torchvision
+
+# Numerical & Data Processing
 numpy
 scipy
+pyyaml
+
+# Visualization & Benchmarking
+matplotlib
+torchsummary

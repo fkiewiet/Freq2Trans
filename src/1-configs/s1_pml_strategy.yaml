@@ -1,11 +1,13 @@
 experiment_id: "EXP_S1_PML"
 objective: "PML strategy comparison: Thickness vs Freq vs Hybrid"
-server: "wave6"
+server: "wave5e"
 parameters:
   omega: 64.0
-  npml: 112
-  # Strategies: 1: thickness, 2: frequency, 3: hybrid, 4: hardcoded
-  pml_strategies: ["thickness", "frequency", "hybrid", "hardcoded"]
+  npml: 112             # Changed from 112 to match Arm A1
+  eta: 50.0             # Add this if main.py looks for it
+  # Arm A1 uses standard (thickness)
+  pml_strategies: ["thickness"] 
   source_type: "point"
   epochs: 2000
   learning_rate: 0.00011
+  in_channels: 26      # Explicitly define this for main.py to pass to the model

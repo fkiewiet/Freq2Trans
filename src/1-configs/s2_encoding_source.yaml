@@ -1,9 +1,11 @@
-experiment_id: "EXP_S2_REP"
-objective: "Fourier Encoding vs Linear and Point vs Gaussian Bump"
+experiment_id: "EXP_S2_PML"
+objective: "PML strategy comparison: High-Damping Adiabatic"
+server: "wave5e"
 parameters:
   omega: 64.0
-  npml: 112
-  encodings: ["fourier", "linear"]
-  sources: ["point", "gaussian"]
-  sigma_g: 2.0
-  epochs: 1500
+  npml: 112             # Increased thickness
+  eta: 50.0             # Aggressive absorption scaling
+  pml_strategy: "adiabatic"
+  source_type: "point"
+  epochs: 2000
+  learning_rate: 0.00011

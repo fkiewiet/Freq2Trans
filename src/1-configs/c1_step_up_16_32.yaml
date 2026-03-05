@@ -1,0 +1,13 @@
+experiment_id: "arm_c1_step_up_16_32"
+parameters:
+  omega: 16.0           # Base training frequency
+  target_omega: 32.0    # Frequency to generalize toward
+  direction: "up"       # Instruction Bit = +1.0
+  npml: 112             # Your standard default
+  eta: 50.0             # Your standard default
+  pml_strategy: "standard"
+  source_type: "point"
+  learning_rate: 0.00011
+  epochs: 2000
+  batch_size: 1
+  epoch_size: 500

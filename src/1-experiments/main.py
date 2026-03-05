@@ -32,17 +32,16 @@ class WaveDataset(Dataset):
         self.grid_size = 512
 
     def __len__(self):
-        return 500  # Standard epoch size for Arm A
+        return self.config['parameters'].get('epoch_size', 500)
 
     def __getitem__(self, idx):
         params = self.config['parameters']
         omega = params.get('omega', 64.0)
         
-        # --- PML Settings aligned with Study Arm A ---
-        # Defaults to 50/4.0 if not found in YAML
-        npml = params.get('npml', 50) 
+        # --- Default Physics Settings ---
+        npml = params.get('npml', 112) 
         pml_strategy = params.get('pml_strategy', 'standard')
-        custom_eta = params.get('eta', 4.0)
+        custom_eta = params.get('eta', 50.0)
         
         # Generate the specific PML profile
         eta = self.pml_gen.get_eta_value(omega, pml_strategy, custom_eta=custom_eta)
@@ -58,13 +57,16 @@ class WaveDataset(Dataset):
             torch.linspace(0, 1, self.grid_size, device=self.device), 
             indexing='ij'
         )
-        # encoder.encode typically returns 2 * num_frequencies channels
+        # encoder.encode (num_frequencies=10) returns 20 channels
         fourier_channels = self.encoder.encode(x, y, omega)
         
-        # --- Meta-Channels ---
+        # --- Meta-Channels & Directional Instruction ---
         omega_tensor = torch.full((1, self.grid_size, self.grid_size), omega / 128.0, device=self.device)
-        direction = 1.0 if params.get('direction', 'up') == 'up' else -1.0
-        dir_tensor = torch.full((1, self.grid_size, self.grid_size), direction, device=self.device)
+        
+        # Instruction Bit: +1.0 for 'up', -1.0 for 'down'
+        direction_str = params.get('direction', 'up')
+        dir_val = 1.0 if direction_str == 'up' else -1.0
+        dir_tensor = torch.full((1, self.grid_size, self.grid_size), dir_val, device=self.device)
 
         # Total Stack: 1(RHS) + 1(PML) + 20(Fourier) + 1(Omega) + 1(Dir) + 2(Coords) = 26
         input_stack = torch.cat([
@@ -82,15 +84,14 @@ class WaveDataset(Dataset):
         return input_stack, target
 
 def run_experiment(config_path):
-    # wave5e is a CPU node; dynamic detection ensures it doesn't crash looking for CUDA
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    print(f"--- Device: {device} ---")
+    print(f"--- Running on: {device} ---")
 
     full_config_path = os.path.abspath(os.path.join(base_path, config_path))
     with open(full_config_path, 'r') as f:
         config = yaml.safe_load(f)
 
-    # Setup Results Path
+    # Isolated Results Directory
     results_dir = os.path.join(base_path, "results", config['experiment_id'])
     os.makedirs(os.path.join(results_dir, "weights"), exist_ok=True)
     
@@ -99,22 +100,22 @@ def run_experiment(config_path):
     encoder = enc_mod.FourierEncoder(num_frequencies=10)
     
     dataset = WaveDataset(config, pml_gen, src_gen, encoder, device)
-    loader = DataLoader(dataset, batch_size=1)
+    loader = DataLoader(dataset, batch_size=config['parameters'].get('batch_size', 1), shuffle=True)
 
-    # --- THE FIX: Dynamic Channel Detection ---
-    # We pull one sample to see exactly how many channels the data logic produces
+    # --- Dynamic Channel Detection ---
     sample_input, _ = dataset[0]
     in_channels = sample_input.shape[0]
     print(f"--- Detected {in_channels} input channels ---")
     
     model = cnn_mod.FlatOperator(in_channels=in_channels).to(device)
-    optimizer = optim.AdamW(model.parameters(), lr=config['parameters'].get('learning_rate', 0.00011))
+    optimizer = optim.AdamW(model.parameters(), lr=float(config['parameters'].get('learning_rate', 0.00011)))
     criterion = torch.nn.MSELoss()
 
-    print(f"--- Launching {config['experiment_id']} with strategy: {config['parameters'].get('pml_strategy', 'standard')} ---")
+    print(f"--- Launching Study Arm C: {config['experiment_id']} ---")
 
     try:
-        for epoch in range(config['parameters'].get('epochs', 2000)):
+        epochs = config['parameters'].get('epochs', 2000)
+        for epoch in range(epochs):
             model.train()
             epoch_loss = 0
             for inputs, targets in loader:
@@ -127,11 +128,11 @@ def run_experiment(config_path):
             
             if epoch % 10 == 0:
                 avg_loss = epoch_loss / len(loader)
-                print(f"Epoch {epoch} | Avg Loss: {avg_loss:.8f}")
+                print(f"Epoch {epoch} | Avg Loss: {avg_loss:.8e}")
                 torch.save(model.state_dict(), f"{results_dir}/weights/latest.pt")
                 
     except KeyboardInterrupt:
-        print("Training interrupted. Saving current weights...")
+        print("\nInterrupt detected. Saving weights to interrupted.pt...")
         torch.save(model.state_dict(), f"{results_dir}/weights/interrupted.pt")
 
 if __name__ == "__main__":

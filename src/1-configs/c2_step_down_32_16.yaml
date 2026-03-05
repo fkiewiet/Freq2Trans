@@ -1,0 +1,13 @@
+experiment_id: "arm_c2_step_down_32_16"
+parameters:
+  omega: 32.0           # Base training frequency
+  target_omega: 16.0    # Frequency to generalize toward
+  direction: "down"     # Instruction Bit = -1.0
+  npml: 112
+  eta: 50.0
+  pml_strategy: "standard"
+  source_type: "point"
+  learning_rate: 0.00011
+  epochs: 2000
+  batch_size: 1
+  epoch_size: 500

@@ -1,0 +1,22 @@
+# src/1-configs/d2_consensus.yaml
+experiment_id: "arm_d2_consensus_verification"
+reproducibility:
+  seed: 42                   # Fixed seed for cross-server alignment
+  deterministic_cuda: true    # Disable non-deterministic CuDNN kernels
+  benchmark: false            # Prevent runtime autotuning for consistency
+
+model:
+  type: "dilated_cnn_8_layer"
+  fourier_bands: 10
+  # Balanced dilation for w=64 baseline comparison
+  dilation_rates: [1, 2, 4, 8, 16, 32, 1, 1]
+
+physics:
+  omega: 64.0                 # Standard frequency to check drift
+  pml_layers: 112              # Using your baseline npml
+  eta: 50.0                    # Using your baseline eta
+  source_sigma: 2.0
+
+training:
+  batch_size: 32
+  precision: "float32"        # Ensure 32-bit for maximum numerical stability

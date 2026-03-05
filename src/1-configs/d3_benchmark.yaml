@@ -1,0 +1,17 @@
+# src/1-configs/d3_benchmark.yaml
+experiment_id: "arm_d3_vram_benchmark_extreme_pml"
+profiling:
+  enabled: true
+  track_vram_peak: true
+  sec_per_epoch: true
+model:
+  type: "dilated_cnn_8_layer"
+  fourier_bands: 10
+  dilation_rates: [1, 2, 4, 8, 16, 32, 64, 1] 
+physics:
+  omega: 128.0
+  pml_layers: 112   # Increased for maximum damping
+  eta: 50.0         # Extreme absorption strength
+training:
+  batch_size: 8     # Reduced from 16 to accommodate the 112-layer PML VRAM cost
+  max_epochs: 10

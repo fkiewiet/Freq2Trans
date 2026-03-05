@@ -1,0 +1,13 @@
+experiment_id: "arm_c3_range_gen_20_40"
+parameters:
+  omega: 20.0
+  target_omega: 40.0
+  direction: "up"
+  npml: 112
+  eta: 50.0
+  pml_strategy: "standard"
+  source_type: "point"
+  learning_rate: 0.00011
+  epochs: 2500          # Slightly longer for broader range
+  batch_size: 1
+  epoch_size: 500

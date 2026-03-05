@@ -1,0 +1,11 @@
+experiment_id: "arm_d1_high_freq_discovery"
+model:
+  type: "dilated_cnn_8_layer"
+  fourier_bands: 10
+  # Updated Dilation for w=128 coverage
+  dilation_rates: [1, 2, 4, 8, 16, 32, 64, 1] 
+physics:
+  omega: 128
+  pml_layers: 112
+  eta: 50.0
+  source_sigma: 2.0

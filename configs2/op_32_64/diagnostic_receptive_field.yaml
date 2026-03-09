@@ -1,0 +1,59 @@
+# Operator: 32->64  (32 -> 64)
+# Phase: diagnostic_receptive_field
+operator: op_32_64
+omega_source: 32
+omega_target: 64
+phase: diagnostic_receptive_field
+
+data:
+  n_train: 500
+  n_val: 100
+  n_test: 0
+  seed: 42
+  grid_size: 512
+  pml_cells: 112
+  source_gaussian_sigma: 8
+  stratify_grid: [10, 10]
+  data_dir: null       # SET THIS before running
+
+model:
+  in_channels: 8
+  out_channels: 2
+  width: 64
+  kernel_size: 3
+  dilation_pattern: [1, 1, 2, 4, 8, 16, 32, 64, 1, 1]
+  activation_body: relu
+  activation_integration: gelu
+  norm: instance
+
+training:
+  max_epochs: 100
+  batch_size: 4
+  grad_accum_steps: 4
+  lr: 1.1e-4
+  weight_decay: 1.0e-4
+  grad_clip_norm: 1.0
+  precision: bf16
+  warmup_fraction: 0.05
+  early_stopping_patience: 100
+  early_stopping_metric: val_rel_l2
+  target_mse: null
+
+loss:
+  lambda_residual: 0.0
+  lambda_residual_start_epoch: 999
+  lambda_residual_final: 0.0
+
+physics:
+  k: null
+  dx: null
+
+logging:
+  plot_every_n_epochs: 25
+  n_fixed_val_samples: 4
+  checkpoint_metric: val_rel_l2
+
+thresholds:
+  val_rel_l2: 0.01
+  physics_residual_ratio: 0.05
+  p95_rel_l2: 0.03

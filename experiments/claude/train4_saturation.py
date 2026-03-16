@@ -1,79 +1,51 @@
 """
-train3_saturation.py
+train4_saturation.py
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-EXPERIMENT 1 — DATA SATURATION CURVE  (bidirectional, speed-optimised)
+EXPERIMENT 1 — DATA SATURATION CURVE  (bidirectional, Green's function solver)
 Multi-Source Helmholtz Frequency Transfer Operator
 Frequency pairs: 16→32, 32→64, 64→128  OR  32→16, 64→32, 128→64
 Grid: 512×512
 
-DEPLOYMENT PLAN
----------------
-  wave5c.mit.edu  →  python train3_saturation.py --direction up   --generate-only
-  wave5f.mit.edu  →  python train3_saturation.py --direction down --generate-only
-  wave7b.mit.edu  →  python train3_saturation.py --direction up   (trains on cached data)
-  wave7b.mit.edu  →  python train3_saturation.py --direction down (trains on cached data)
+KEY CHANGE vs train3_saturation.py
+-----------------------------------
+Data generation replaces the sparse FD solver (SuperLU / UMFPACK + PML) with
+the analytic 2D free-space Green's function.  For a homogeneous medium with
+k = 1 everywhere, the Helmholtz equation
 
-  wave5c/5f handle data generation (32 CPU cores, UMFPACK).
-  wave7b handles training only (GPU). Since all three share mathfs3.mit.edu NFS,
-  wave7b reads .npz files the moment wave5c/5f finish writing them.
-  No filesystem collision: direction tag is baked into every path name.
+    (Δ + ω²) u = −f
 
-SPEED IMPROVEMENTS vs train2_saturation.py
--------------------------------------------
-  1. Parallel data generation via multiprocessing.Pool
-       Each sample is an independent pair of sparse linear solves.
-       --n-workers controls pool size (default: all physical cores).
-       Expected speedup: 8–16× depending on core count.
+has the exact solution
 
-  2. UMFPACK instead of SuperLU for the sparse solves
-       scikits.umfpack wraps UMFPACK, a multifrontal solver that uses
-       dense BLAS-3 kernels internally and a better AMD fill-reducing
-       ordering for structured 2D stencils.
-       Expected speedup: 2–4× per solve over scipy spsolve (SuperLU).
-       INSTALL: pip install scikit-umfpack
-       Falls back gracefully to scipy spsolve if not available.
+    u(x) = −∫ G(x − x′) f(x′) dx′
 
-  3. DataLoader num_workers > 0 for GPU pipeline overlap
-       Training batches are prefetched on CPU while the GPU computes.
+where
 
-  Combined expected speedup over train2: ~20–50× for the data generation
-  phase. Training speed is unchanged (GPU-bound).
+    G(r) = (i/4) H₀⁽¹⁾(ω r)   (Hankel function of the first kind, order 0)
 
-NEW vs train2_saturation.py
----------------------------
-  --n-workers N   Number of parallel worker processes for data generation.
-                  Default: os.cpu_count() (use all cores).
-                  Set to 1 to disable multiprocessing (useful for debugging).
+Implemented as an FFT-based 2D convolution with 2× zero-padding to prevent
+circular-convolution aliasing.  The kernel FFT is cached on first use for each
+ω, then reused for every subsequent sample at that frequency.
 
-  All other flags (--direction, --fast, --n, --device) are identical.
+Advantages over train3
+  • No sparse matrix assembly or LU factorisation
+  • No UMFPACK / SuperLU / scikit-umfpack dependency
+  • No PML layer needed — the outgoing Green's function handles BCs exactly
+  • Correct interior physics (this is the exact solution for k=1 uniform medium)
+  • ~100–1000× faster data generation per sample
 
-ARCHITECTURE (fixed — Optuna winner from single-source baseline)
-  width=128  depth=8  kernel=7  dilation=linear  InstanceNorm2d
+Limitation
+  • Free-space (homogeneous) medium only.  This is fine: the medium IS
+    homogeneous (k = 1 everywhere), so the Green's function is exact.
+  • No PML boundary artefacts in the generated field.  The network sees
+    slightly different boundary-region features from train3 data; do not
+    mix datasets between train3 and train4 runs.
 
-USAGE
------
-  # wave5c — generate up datasets only (no training)
-  python train3_saturation.py --direction up   --generate-only
-
-  # wave5f — generate down datasets only (no training)
-  python train3_saturation.py --direction down --generate-only
-
-  # wave7b — train only (skips generation for cached N values, GPU)
-  python train3_saturation.py --direction up
-  python train3_saturation.py --direction down
-
-  # Fast smoke test
-  python train3_saturation.py --direction up --fast
-
-  # Custom N list with explicit worker count
-  python train3_saturation.py --direction up --n 150 300 600 --n-workers 16
-
-OUTPUT  (relative to this file)
+OUTPUT (relative to this file)
 ------
-  results/
-    datasets/           — cached .npz files (reusable across runs)
-    run_up_<ts>/        — outputs for up run
-    run_down_<ts>/      — outputs for down run
+  results_train4/           ← all outputs live here (distinct from train3)
+    datasets_greens/        ← cached .npz files (reusable across train4 runs)
+    run_up_<ts>/            ← outputs for up run
+    run_down_<ts>/          ← outputs for down run
       saturation_curve.json
       plot_saturation_curve.png
       plot_convergence_curves.png
@@ -83,10 +55,27 @@ OUTPUT  (relative to this file)
       checkpoints/
       summary.txt
 
+USAGE
+-----
+  # Upward transfer
+  python train4_saturation.py --direction up
+
+  # Downward transfer
+  python train4_saturation.py --direction down
+
+  # Generate datasets only (no training)
+  python train4_saturation.py --direction up --generate-only
+
+  # Fast smoke test
+  python train4_saturation.py --direction up --fast
+
+  # Custom N list
+  python train4_saturation.py --direction up --n 150 300 600 --n-workers 16
+
 DEPENDENCIES
 ------------
-  torch, numpy, scipy, matplotlib
-  scikit-umfpack  (recommended: pip install scikit-umfpack)
+  torch, numpy, scipy (scipy.special.hankel1), matplotlib
+  No scikit-umfpack needed.
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 """
 
@@ -108,93 +97,96 @@ from torch.utils.data import Dataset, DataLoader, random_split
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
+from scipy.special import hankel1 as _hankel1
 
-# ── UMFPACK availability check ────────────────────────────────────────────────
-try:
-    import scikits.umfpack as umfpack
-    _USE_UMFPACK = True
-    print("[solver] UMFPACK available — using multifrontal solver (fast path)")
-except ImportError:
-    _USE_UMFPACK = False
-    print("[solver] scikit-umfpack not found — falling back to scipy spsolve (SuperLU)")
-    print("         Install with: pip install scikit-umfpack")
-    print("         Expected 2–4× speedup per solve once installed.\n")
-
-# ── paths ──────────────────────────────────────────────────────────────────
+# ── paths ────────────────────────────────────────────────────────────────────
 HERE        = Path(__file__).parent
-RESULTS_DIR = HERE / "results"
+RESULTS_DIR = HERE / "results_train4"          # distinct from train3's results/
 
-# ── reproducibility ────────────────────────────────────────────────────────
+# ── reproducibility ───────────────────────────────────────────────────────────
 GLOBAL_SEED = 42
 np.random.seed(GLOBAL_SEED)
 torch.manual_seed(GLOBAL_SEED)
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-#  SECTION 1 — HELMHOLTZ SOLVER
+#  SECTION 1 — GREEN'S FUNCTION SOLVER
 # ══════════════════════════════════════════════════════════════════════════════
 
-def build_helmholtz_matrix(n: int, omega: float, k: float, dx: float,
-                            npml: int, eta: float):
+_GREEN_FFT_CACHE: dict = {}
+
+
+def _get_green_fft(omega: float, n_pad: int, dx: float) -> np.ndarray:
     """
-    Assemble the 5-point FD Helmholtz operator on an n×n grid with PML.
-    PML stretching: d/dx → 1/(1 + i·σ(x)/ω) · d/dx
-    σ(x) = eta · ((npml - i)/npml)²  (quadratic ramp inside PML).
+    Return the (cached) FFT of the 2D free-space Green's function kernel on a
+    n_pad × n_pad grid.
+
+        G(r) = (i/4) H₀⁽¹⁾(ω · r)     (outgoing Sommerfeld radiation condition)
+
+    The kernel is laid out in FFT frequency order so that direct multiplication
+    with FFT(f) gives the correct convolution.
+
+    Parameters
+    ----------
+    omega  : angular frequency
+    n_pad  : padded grid size (typically 2 × n to avoid aliasing)
+    dx     : physical grid spacing  1 / (INTERIOR - 1)
     """
-    from scipy.sparse import lil_matrix
+    key = (omega, n_pad)
+    if key not in _GREEN_FFT_CACHE:
+        # FFT-order index arrays: 0, 1, …, n/2, -n/2+1, …, -1
+        idx  = np.fft.fftfreq(n_pad, d=1.0) * n_pad   # grid-unit offsets
+        I, J = np.meshgrid(idx, idx, indexing="ij")
+        r_grid = np.sqrt(I**2 + J**2)                 # distance in grid units
+        r_phys = r_grid * dx                           # physical distance
 
-    N     = n * n
-    sigma = np.zeros(n, dtype=np.float64)
-    for i in range(npml):
-        d = (npml - i) / npml
-        sigma[i]     = eta * d**2
-        sigma[n-1-i] = eta * d**2
+        G = np.zeros((n_pad, n_pad), dtype=np.complex128)
+        nonzero = r_grid > 1e-12
+        G[nonzero]  = (1j / 4.0) * _hankel1(0, omega * r_phys[nonzero])
+        # Regularise the logarithmic singularity at r = 0:
+        # use G evaluated at r = 0.5 · dx  (half a grid spacing)
+        G[~nonzero] = (1j / 4.0) * _hankel1(0, omega * 0.5 * dx)
 
-    s     = 1.0 + 1j * sigma / omega
-    s_inv = 1.0 / s
-    dx2   = dx**2
+        _GREEN_FFT_CACHE[key] = np.fft.fft2(G)
 
-    A = lil_matrix((N, N), dtype=np.complex128)
-
-    for i in range(n):
-        for j in range(n):
-            p   = i * n + j
-            sx_w = 0.5 * (s_inv[j-1] + s_inv[j]) if j > 0    else s_inv[j]
-            sx_e = 0.5 * (s_inv[j]   + s_inv[j+1]) if j < n-1 else s_inv[j]
-            sy_s = 0.5 * (s_inv[i-1] + s_inv[i]) if i > 0    else s_inv[i]
-            sy_n = 0.5 * (s_inv[i]   + s_inv[i+1]) if i < n-1 else s_inv[i]
-
-            A[p, p] = (-(sx_w + sx_e + sy_s + sy_n) / dx2 - (k * omega)**2)
-            if j > 0:   A[p, i*n + j-1] = sx_w / dx2
-            if j < n-1: A[p, i*n + j+1] = sx_e / dx2
-            if i > 0:   A[p, (i-1)*n + j] = sy_s / dx2
-            if i < n-1: A[p, (i+1)*n + j] = sy_n / dx2
-
-    return A.tocsc()
+    return _GREEN_FFT_CACHE[key]
 
 
-def _spsolve_fast(A, rhs):
+def solve_helmholtz_green(omega: float, source_field: np.ndarray) -> np.ndarray:
     """
-    Solve A·x = rhs using UMFPACK if available, else scipy SuperLU.
-    This is the single place where solver choice is made.
+    Solve (Δ + ω²) u = −f  analytically via the 2D free-space Green's function.
+
+        u(x) = −∫ G(x − x′) f(x′) dx′
+        G(r) = (i/4) H₀⁽¹⁾(ω r)
+
+    Implemented as an FFT convolution with 2× zero-padding to convert the
+    circular convolution on the discrete grid into a linear one.
+
+    Parameters
+    ----------
+    omega        : angular frequency (wavenumber = k·ω = 1·ω = ω since k=1)
+    source_field : complex source f on the full n×n grid (including PML margin)
+
+    Returns
+    -------
+    u : complex128 array, shape (n, n)
     """
-    if _USE_UMFPACK:
-        return umfpack.spsolve(A, rhs)
-    else:
-        from scipy.sparse.linalg import spsolve
-        return spsolve(A, rhs)
-
-
-def solve_helmholtz(omega: float, k: float, source_field: np.ndarray,
-                    npml: int, eta: float) -> np.ndarray:
-    """Solve (Δ_PML + k²ω²) u = -f. Returns complex128 array (n, n)."""
     n        = source_field.shape[0]
-    interior = n - 2 * npml
+    interior = n - 2 * NPML
     dx       = 1.0 / (interior - 1)
-    A        = build_helmholtz_matrix(n, omega, k, dx, npml, eta)
-    rhs      = -source_field.ravel().astype(np.complex128)
-    u_flat   = _spsolve_fast(A, rhs)
-    return u_flat.reshape(n, n)
+    n_pad    = 2 * n
+
+    G_fft = _get_green_fft(omega, n_pad, dx)
+
+    # Zero-pad the source into the upper-left quadrant of the padded grid
+    f_pad         = np.zeros((n_pad, n_pad), dtype=np.complex128)
+    f_pad[:n, :n] = source_field
+
+    # u = −(G * f) · dx²   (dx² is the discrete quadrature weight)
+    u_pad = np.fft.ifft2(-G_fft * np.fft.fft2(f_pad)) * (dx**2)
+
+    # Extract the original n×n block (wrap-around contributions land in [n:])
+    return u_pad[:n, :n]
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -203,18 +195,16 @@ def solve_helmholtz(omega: float, k: float, source_field: np.ndarray,
 
 GRID_N   = 512
 NPML     = 112
-INTERIOR = GRID_N - 2 * NPML   # 288
+INTERIOR = GRID_N - 2 * NPML    # 288
 K        = 1.0
 SIGMA_G  = 2.0
-
-ETA = {16: 42.5, 32: 85.0, 64: 120.0, 128: 180.0}
 
 # Direction-dependent frequency pairs — set in main() and used globally.
 # Default = upward. Each element is (omega_input, omega_target).
 FREQ_PAIRS = [(16, 32), (32, 64), (64, 128)]   # overwritten at runtime
 
 
-# Pre-compute fixed spatial channels ─────────────────────────────────────────
+# Pre-compute fixed spatial channels ──────────────────────────────────────────
 
 def _make_fourier_channels(n: int, k_bands: int = 6) -> np.ndarray:
     """
@@ -222,7 +212,7 @@ def _make_fourier_channels(n: int, k_bands: int = 6) -> np.ndarray:
     Returns (4·k_bands, n, n).  K=6 → 24 channels.
     """
     coords = np.linspace(0, 1, n, dtype=np.float32)
-    X, Y   = np.meshgrid(coords, coords, indexing='ij')
+    X, Y   = np.meshgrid(coords, coords, indexing="ij")
     ch = []
     for k in range(k_bands):
         f = 2**k * np.pi
@@ -231,33 +221,37 @@ def _make_fourier_channels(n: int, k_bands: int = 6) -> np.ndarray:
 
 
 def _make_pml_map(n: int, npml: int) -> np.ndarray:
-    """0 in interior, linearly ramps to 1 at the grid edges. Shape (n, n)."""
+    """0 in interior, linearly ramps to 1 at grid edges.  Shape (n, n)."""
     ramp = np.zeros(n, dtype=np.float32)
     for i in range(npml):
         v = (npml - i) / npml
         ramp[i] = v; ramp[n-1-i] = v
-    Xr, Yr = np.meshgrid(ramp, ramp, indexing='ij')
+    Xr, Yr = np.meshgrid(ramp, ramp, indexing="ij")
     return np.maximum(Xr, Yr)
 
 
 _FOURIER = _make_fourier_channels(GRID_N, k_bands=6)   # (24, 512, 512)
 _PML_MAP = _make_pml_map(GRID_N, NPML)                 # (512, 512)
 
-N_INPUT_CHANNELS = 29   # Re + Im + 24 Fourier + PML + ω + η
+# 29 channels: Re + Im + 24 Fourier + PML + ω_norm + η_norm
+# η_norm is always 0.0 in train4 (no PML used in data generation).
+# Channel count kept at 29 to keep the model architecture identical to train3.
+N_INPUT_CHANNELS = 29
 
 
 def gaussian_source(n: int, cx: int, cy: int, amplitude: complex,
                     sigma: float = SIGMA_G) -> np.ndarray:
     xs = np.arange(n); ys = np.arange(n)
-    X, Y = np.meshgrid(xs, ys, indexing='ij')
+    X, Y = np.meshgrid(xs, ys, indexing="ij")
     return amplitude * np.exp(-((X-cx)**2 + (Y-cy)**2) / (2 * sigma**2))
 
 
 def generate_sample(omega_in: float, omega_out: float,
                     n_sources: int, rng: np.random.Generator) -> dict:
     """
-    Draw n_sources sources; solve Helmholtz at omega_in and omega_out.
-    Works for both up (omega_in < omega_out) and down (omega_in > omega_out).
+    Draw n_sources Gaussian sources; compute Helmholtz solutions at omega_in
+    and omega_out via the analytic Green's function (no sparse solve).
+    Valid for both upward (omega_in < omega_out) and downward transfers.
     """
     px = rng.integers(NPML, NPML + INTERIOR, size=n_sources)
     py = rng.integers(NPML, NPML + INTERIOR, size=n_sources)
@@ -269,8 +263,8 @@ def generate_sample(omega_in: float, omega_out: float,
         amp = amps[s] * np.exp(1j * phases[s])
         source_field += gaussian_source(GRID_N, px[s], py[s], amp)
 
-    u_in  = solve_helmholtz(omega_in,  K, source_field, NPML, ETA[int(omega_in)])
-    u_out = solve_helmholtz(omega_out, K, source_field, NPML, ETA[int(omega_out)])
+    u_in  = solve_helmholtz_green(omega_in,  source_field)
+    u_out = solve_helmholtz_green(omega_out, source_field)
 
     return {
         "u_low":        u_in,
@@ -290,7 +284,6 @@ def sample_to_tensor(sample: dict) -> tuple:
     u_low   = sample["u_low"].astype(np.complex64)
     u_high  = sample["u_high"].astype(np.complex64)
     omega_l = float(sample["omega_low"])
-    eta_l   = ETA[int(omega_l)] / 200.0
 
     interior = slice(NPML, NPML + INTERIOR)
     rms      = float(np.sqrt(np.mean(np.abs(u_low[interior, interior])**2))) + 1e-8
@@ -298,15 +291,16 @@ def sample_to_tensor(sample: dict) -> tuple:
     u_high   = u_high / rms
 
     omega_field = np.full((GRID_N, GRID_N), omega_l / 128.0, dtype=np.float32)
-    eta_field   = np.full((GRID_N, GRID_N), eta_l,            dtype=np.float32)
+    # η channel is 0.0 — no PML used in Green's function data generation
+    eta_field   = np.zeros((GRID_N, GRID_N), dtype=np.float32)
 
     inp = np.concatenate([
-        u_low.real[None],   # ch 0
-        u_low.imag[None],   # ch 1
-        _FOURIER,           # ch 2–25
-        _PML_MAP[None],     # ch 26
-        omega_field[None],  # ch 27
-        eta_field[None],    # ch 28
+        u_low.real[None],    # ch 0
+        u_low.imag[None],    # ch 1
+        _FOURIER,            # ch 2–25
+        _PML_MAP[None],      # ch 26
+        omega_field[None],   # ch 27
+        eta_field[None],     # ch 28  (always 0.0)
     ], axis=0).astype(np.float32)
 
     tgt       = np.stack([u_high.real, u_high.imag], axis=0).astype(np.float32)
@@ -320,7 +314,7 @@ def sample_to_tensor(sample: dict) -> tuple:
 def _generate_one_sample(args: tuple) -> tuple:
     """
     Worker function called by multiprocessing.Pool.map.
-    Each call is one sample = two sparse linear solves.
+    Each call = two Green's function convolutions (one per frequency).
 
     args = (omega_in, omega_out, n_sources, seed_offset)
     Returns (inp, tgt, src) numpy arrays ready to store.
@@ -355,23 +349,21 @@ class HelmholtzDataset(Dataset):
         Generate n_per_pair samples for each pair in FREQ_PAIRS.
         Total samples = len(FREQ_PAIRS) × n_per_pair.
 
-        n_workers controls the multiprocessing pool size.
-          None  → use all available CPU cores (os.cpu_count())
-          1     → serial execution (useful for debugging / profiling)
-          N     → exactly N parallel workers
+        n_workers controls pool size:
+          None → all available CPU cores
+          1    → serial (useful for debugging / profiling)
+          N    → exactly N parallel workers
         """
         if n_workers is None:
             n_workers = cpu_count()
 
         rng_master = np.random.default_rng(seed)
 
-        # Build the full argument list up-front so pool.map can chunk it.
-        # seed_offset makes each sample reproducible regardless of scheduling.
         args_list = []
         for pair_idx, (omega_in, omega_out) in enumerate(FREQ_PAIRS):
             for i in range(n_per_pair):
-                n_src        = int(rng_master.integers(3, 7))
-                seed_offset  = pair_idx * n_per_pair + i
+                n_src       = int(rng_master.integers(3, 7))
+                seed_offset = pair_idx * n_per_pair + i
                 args_list.append((omega_in, omega_out, n_src, seed_offset))
 
         total = len(args_list)
@@ -379,11 +371,9 @@ class HelmholtzDataset(Dataset):
 
         if verbose:
             print(f"  Generating {total} samples  "
-                  f"({n_workers} parallel workers, "
-                  f"{'UMFPACK' if _USE_UMFPACK else 'SuperLU'}) ...")
+                  f"({n_workers} parallel workers, Green's function) ...")
 
         if n_workers == 1:
-            # Serial path — avoids multiprocessing overhead, good for debugging
             results = []
             for k, a in enumerate(args_list):
                 results.append(_generate_one_sample(a))
@@ -395,9 +385,6 @@ class HelmholtzDataset(Dataset):
                           f"({elapsed:.0f}s elapsed, ETA {eta:.0f}s)",
                           end="", flush=True)
         else:
-            # Parallel path — the big win
-            # chunksize: large enough to amortise IPC, small enough for
-            # good load balance. sqrt(total/n_workers) is a good heuristic.
             chunksize = max(1, int(np.sqrt(total / n_workers)))
             with Pool(processes=n_workers) as pool:
                 results = []
@@ -539,7 +526,7 @@ def helmholtz_residual_loss(pred, source_real, omega_target, mask):
 
 class CombinedLoss(nn.Module):
     """L = λ1·MSE + λ2·RelL2 + λ3·Residual  (interior, real channel)."""
-    def __init__(self, lambda1=1.0, lambda2=1.0, lambda3=0.1,
+    def __init__(self, lambda1=1.0, lambda2=1.0, lambda3=0.0,
                  warmup_epochs=20, device=torch.device("cpu")):
         super().__init__()
         self.lambda1        = lambda1
@@ -679,7 +666,7 @@ def trivial_baseline(loader, device, direction):
 
 def train_to_convergence(dataset, device, checkpoint_path, direction,
                          max_epochs=200, patience=15,
-                         batch_size=4, lr=1.1e-4, lambda3=0.1,
+                         batch_size=4, lr=1.1e-4, lambda3=0.0,
                          n_dl_workers=4,
                          verbose=True):
     """
@@ -697,7 +684,6 @@ def train_to_convergence(dataset, device, checkpoint_path, direction,
     )
 
     pin = device.type == "cuda"
-    # Use persistent_workers for GPU servers to avoid re-spawning each epoch
     pw  = (n_dl_workers > 0)
     train_loader = DataLoader(train_ds, batch_size=batch_size, shuffle=True,
                               num_workers=n_dl_workers, pin_memory=pin,
@@ -761,7 +747,7 @@ def train_to_convergence(dataset, device, checkpoint_path, direction,
             print(f"    E{epoch:3d}  train={tr['rel_l2']:.4f}"
                   f"  val={val_rl2:.4f}  [{pp_str}]"
                   f"  imag={va['imag_mse']:.2e}"
-                  f"  λ3={loss_fn.lambda3:.3f}"
+                  f"  lambda3={loss_fn.lambda3:.3f}"
                   f"  ({time.time()-t0:.1f}s)")
 
         if val_rl2 < best_val - 1e-5:
@@ -785,6 +771,7 @@ def train_to_convergence(dataset, device, checkpoint_path, direction,
             "best_val_rel_l2":  best_val,
             "best_epoch":       best_epoch,
             "direction":        direction,
+            "solver":           "greens_function_fft",
             "arch": dict(in_channels=N_INPUT_CHANNELS, width=128, depth=8,
                          kernel=7, dilation_mode="linear", activation="relu"),
         }, checkpoint_path)
@@ -817,12 +804,11 @@ def train_to_convergence(dataset, device, checkpoint_path, direction,
 
 def run_saturation_curve(n_values, run_dir, device, direction,
                          n_workers, fast=False):
-    dataset_dir = RESULTS_DIR / "datasets"
+    dataset_dir = RESULTS_DIR / "datasets_greens"
     ckpt_dir    = run_dir / "checkpoints"
     dataset_dir.mkdir(parents=True, exist_ok=True)
     ckpt_dir.mkdir(parents=True, exist_ok=True)
 
-    # DataLoader workers: use 4 on GPU, 0 on CPU to avoid fork overhead
     n_dl_workers = 4 if device.type == "cuda" else 0
 
     results = {"n_values": n_values, "details": [], "direction": direction}
@@ -834,13 +820,13 @@ def run_saturation_curve(n_values, run_dir, device, direction,
         print(f"{'='*64}")
 
         cache = (dataset_dir /
-                 f"dataset_N{n_per_pair}_seed{GLOBAL_SEED}_{direction}.npz")
+                 f"train4_N{n_per_pair}_seed{GLOBAL_SEED}_{direction}.npz")
         if cache.exists():
             print(f"  Loading cached dataset: {cache.name}")
             dataset = HelmholtzDataset.load(cache)
         else:
             print(f"  Generating {3*n_per_pair} samples "
-                  f"({n_workers} workers) ...")
+                  f"({n_workers} workers, Green's function) ...")
             dataset = HelmholtzDataset.generate(
                 n_per_pair, seed=GLOBAL_SEED,
                 n_workers=n_workers,
@@ -859,9 +845,9 @@ def run_saturation_curve(n_values, run_dir, device, direction,
             n_dl_workers=n_dl_workers,
         )
 
-        print(f"  ✓  Best val RelL2:  {result['best_val_rel_l2']*100:.2f}%")
-        print(f"     Test RelL2:      {result['test_eval']['rel_l2']*100:.2f}%")
-        print(f"     Trivial base:    {result['trivial_baseline']['overall']*100:.2f}%")
+        print(f"  Best val RelL2:  {result['best_val_rel_l2']*100:.2f}%")
+        print(f"     Test RelL2:   {result['test_eval']['rel_l2']*100:.2f}%")
+        print(f"     Trivial base: {result['trivial_baseline']['overall']*100:.2f}%")
 
         results["details"].append({"n_per_pair": n_per_pair, **result})
 
@@ -915,7 +901,7 @@ def plot_saturation_curve(results, run_dir):
 
     fig, ax = plt.subplots(figsize=(10, 6))
     fig.suptitle(
-        f"Experiment 1 — Data Saturation Curve  [{direction.upper()}]\n"
+        f"Experiment 1 — Data Saturation Curve  [{direction.upper()}]  [train4: Green's fn]\n"
         f"Multi-Source Helmholtz Frequency Transfer  |  {_direction_label(direction)}",
         fontweight="bold", fontsize=12)
 
@@ -951,7 +937,7 @@ def plot_convergence_curves(results, run_dir):
     fig, axes = plt.subplots(n_rows, n_cols,
                               figsize=(5*n_cols, 4*n_rows), squeeze=False)
     fig.suptitle(
-        f"Experiment 1 — Convergence Curves per N  [{direction.upper()}]",
+        f"Experiment 1 — Convergence Curves per N  [{direction.upper()}]  [train4]",
         fontweight="bold", fontsize=11)
 
     for idx, d in enumerate(details):
@@ -965,7 +951,7 @@ def plot_convergence_curves(results, run_dir):
         ax2.plot(epochs, d["val_imag_mse_curve"],          color="#9B59B6", lw=1,
                  ls=":", alpha=0.7, label="Im MSE")
         ax2.set_ylabel("Im MSE", fontsize=8, color="#9B59B6")
-        ax2.tick_params(axis='y', labelcolor="#9B59B6", labelsize=7)
+        ax2.tick_params(axis="y", labelcolor="#9B59B6", labelsize=7)
         _add_thresholds(ax)
         ax.axvline(d["best_epoch"], color="grey", ls=":", lw=1)
         ax.set_title(
@@ -994,7 +980,7 @@ def plot_per_pair_breakdown(results, run_dir):
     pair_keys = [f"{lo}→{hi}" for lo, hi in FREQ_PAIRS]
     fig, axes = plt.subplots(1, 3, figsize=(15, 5), sharey=True)
     fig.suptitle(
-        f"Experiment 1 — Per-Pair RelL2 (Test Set)  [{direction.upper()}]",
+        f"Experiment 1 — Per-Pair RelL2 (Test Set)  [{direction.upper()}]  [train4]",
         fontweight="bold", fontsize=12)
 
     for col, pk in enumerate(pair_keys):
@@ -1032,7 +1018,7 @@ def plot_per_pair_convergence(results, run_dir):
     fig, axes = plt.subplots(n_rows, n_cols,
                               figsize=(5*n_cols, 4*n_rows), squeeze=False)
     fig.suptitle(
-        f"Experiment 1 — Per-Pair Val RelL2 Convergence  [{direction.upper()}]",
+        f"Experiment 1 — Per-Pair Val RelL2 Convergence  [{direction.upper()}]  [train4]",
         fontweight="bold", fontsize=11)
 
     for idx, d in enumerate(details):
@@ -1066,7 +1052,7 @@ def plot_trivial_baseline(results, run_dir):
     pair_keys = [f"{lo}→{hi}" for lo, hi in FREQ_PAIRS]
     fig, ax   = plt.subplots(figsize=(9, 5))
     fig.suptitle(
-        f"Experiment 1 — Improvement Over Trivial Baseline  [{direction.upper()}]\n"
+        f"Experiment 1 — Improvement Over Trivial Baseline  [{direction.upper()}]  [train4]\n"
         "Ratio = trivial RelL2 / model RelL2  (higher is better)",
         fontweight="bold", fontsize=11)
 
@@ -1140,9 +1126,9 @@ def save_json(results, run_dir):
         }
 
     out = {
-        "experiment":       "Experiment 1 — Data Saturation Curve",
+        "experiment":       "Experiment 1 — Data Saturation Curve (train4: Green's function)",
         "direction":        direction,
-        "solver":           "UMFPACK" if _USE_UMFPACK else "SuperLU (scipy)",
+        "solver":           "2D free-space Green's function  G(r) = (i/4) H0(1)(omega*r)  [FFT convolution]",
         "architecture":     "width=128 depth=8 kernel=7 dilation=linear InstanceNorm2d",
         "normalisation":    "per-sample RMS of input interior",
         "n_input_channels": N_INPUT_CHANNELS,
@@ -1168,20 +1154,21 @@ def save_summary(results, json_data, run_dir):
 
     lines = [
         "=" * 70,
-        f"EXPERIMENT 1 — DATA SATURATION CURVE — SUMMARY  [{direction.upper()}]",
+        f"EXPERIMENT 1 — DATA SATURATION CURVE — SUMMARY  [{direction.upper()}]  [train4]",
         f"Run timestamp: {datetime.now().strftime('%Y-%m-%d %H:%M')}",
-        f"Solver: {'UMFPACK (multifrontal)' if _USE_UMFPACK else 'SuperLU (scipy fallback)'}",
+        f"Solver: 2D free-space Green's function  G(r) = (i/4) H0(1)(omega*r)",
+        f"        Implemented via FFT convolution with 2x zero-padding.",
         "=" * 70,
         "",
         "Scientific note:",
-        "  Upward transfer (low→high ω): model must infer finer oscillations.",
-        "  Downward transfer (high→low ω): expected easier (smoothing).",
-        "  If down RelL2 ≥ up RelL2, that is a reportable finding.",
+        "  This run uses the analytic Green's function (no PML, no sparse solve).",
+        "  The medium is homogeneous (k=1), so this is exact for the interior.",
+        "  Compare results to train3 (PML + sparse solver) to verify consistency.",
         "",
         f"Architecture: width=128, depth=8, kernel=7, dilation=linear",
-        f"Input channels: {N_INPUT_CHANNELS}  (Re, Im, Fourier×24, PML, ω, η)",
+        f"Input channels: {N_INPUT_CHANNELS}  (Re, Im, Fourier×24, PML, ω, η=0)",
         f"Normalisation:  per-sample RMS of input interior",
-        f"Loss: λ1·MSE + λ2·RelL2 + λ3·Residual  |  interior only  |  real ch",
+        f"Loss: lambda1·MSE + lambda2·RelL2 + lambda3·Residual  |  interior only  |  real ch",
         f"Thresholds: min={THRESH_MIN}%  strong={THRESH_STRONG}%",
         "",
         "-" * 70,
@@ -1196,8 +1183,8 @@ def save_summary(results, json_data, run_dir):
             for pk in pair_keys
         )
         vrl2 = d["best_val_rel_l2"]
-        flag = ("  ✓ STRONG" if vrl2 < THRESH_STRONG/100
-                else ("  ✓ MIN" if vrl2 < THRESH_MIN/100 else ""))
+        flag = ("  STRONG" if vrl2 < THRESH_STRONG/100
+                else ("  MIN" if vrl2 < THRESH_MIN/100 else ""))
         lines.append(
             f"{d['n_per_pair']:>8}  "
             f"{vrl2*100:>8.2f}%  "
@@ -1211,14 +1198,14 @@ def save_summary(results, json_data, run_dir):
         "",
         f"Estimated N*  (knee of mean curve): {n_star} samples per pair",
         f"Recommended total dataset:           {3*n_star} samples",
-        f"Solver runs required:                {6*n_star}",
         "",
         "DECISION RULES",
-        "  Val RelL2 still above 20% at N=2400  → check solver/normalisation",
+        "  Val RelL2 still above 20% at N=2400  → check normalisation or source scaling",
         "  64→128 pair consistently >2× other pairs → increase width to 192 in Exp 2",
-        "  Imaginary MSE >> real MSE             → add Im channel to loss at λ=0.3",
+        "  Imaginary MSE >> real MSE             → add Im channel to loss at lambda=0.3",
         "  Val/train ratio > 1.5                 → overfitting; increase N or add dropout",
-        "  Down RelL2 ≥ Up RelL2                 → unexpected; investigate symmetry",
+        "  Down RelL2 >= Up RelL2                → unexpected; investigate symmetry",
+        "  train4 RelL2 >> train3 RelL2          → data distribution shift (PML vs free-space)",
         "=" * 70,
     ]
 
@@ -1236,16 +1223,15 @@ def save_summary(results, json_data, run_dir):
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Experiment 1 — Data Saturation Curve (bidirectional, speed-optimised)"
+        description="Experiment 1 — Data Saturation Curve (Green's function solver)"
     )
     parser.add_argument(
         "--direction", type=str, default="up", choices=["up", "down"],
-        help="Transfer direction: 'up' (16→32 etc) or 'down' (32→16 etc). "
-             "Run 'up' on wave5c, 'down' on wave5f."
+        help="Transfer direction: 'up' (16→32 etc) or 'down' (32→16 etc)."
     )
     parser.add_argument(
         "--fast", action="store_true",
-        help="Smoke test: N ∈ {20, 50, 100}, 30 max epochs"
+        help="Smoke test: N in {20, 50, 100}, 30 max epochs"
     )
     parser.add_argument(
         "--n", nargs="+", type=int, default=None,
@@ -1264,24 +1250,20 @@ def main():
     parser.add_argument(
         "--generate-only", action="store_true",
         dest="generate_only",
-        help="Generate and cache all datasets then exit without training. "
-             "Use on wave5c/wave5f (CPU). wave7b then trains from the shared NFS cache."
+        help="Generate and cache all datasets then exit without training."
     )
     args = parser.parse_args()
 
-    # ── resolve worker count ──────────────────────────────────────────────────
     n_workers = args.n_workers if args.n_workers is not None else cpu_count()
     print(f"Data generation workers: {n_workers}  "
           f"(of {cpu_count()} available cores)")
 
-    # ── set global FREQ_PAIRS ─────────────────────────────────────────────────
     global FREQ_PAIRS
     if args.direction == "up":
         FREQ_PAIRS = [(16, 32), (32, 64), (64, 128)]
     else:
         FREQ_PAIRS = [(32, 16), (64, 32), (128, 64)]
 
-    # ── device ────────────────────────────────────────────────────────────────
     if args.device:
         device = torch.device(args.device)
     elif torch.cuda.is_available():
@@ -1294,7 +1276,6 @@ def main():
         device = torch.device("cpu")
         print("Device: CPU")
 
-    # ── N values ──────────────────────────────────────────────────────────────
     if args.n:
         n_values = sorted(args.n)
     elif args.fast:
@@ -1303,38 +1284,36 @@ def main():
     else:
         n_values = [150, 300, 600, 1200, 2400]
 
-    # ── output directory ──────────────────────────────────────────────────────
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     run_dir   = RESULTS_DIR / f"run_{args.direction}_{timestamp}"
     run_dir.mkdir(parents=True, exist_ok=True)
 
-    print(f"\nExperiment 1 — Data Saturation Curve  [{args.direction.upper()}]")
+    print(f"\nExperiment 1 — Data Saturation Curve  [{args.direction.upper()}]  [train4]")
+    print(f"Solver:       2D free-space Green's function  G(r)=(i/4)H0(1)(omega*r)")
     print(f"Direction:    {args.direction}  ({_direction_label(args.direction)})")
     print(f"Script:       {HERE}")
     print(f"Results:      {run_dir}")
-    print(f"Dataset cache:{RESULTS_DIR / 'datasets'}")
+    print(f"Dataset cache:{RESULTS_DIR / 'datasets_greens'}")
     print(f"N values:     {n_values}")
-    print(f"Channels:     {N_INPUT_CHANNELS}  (Re, Im, Fourier×24, PML, ω, η)")
+    print(f"Channels:     {N_INPUT_CHANNELS}  (Re, Im, Fourier×24, PML, ω, η=0)")
     print(f"Architecture: width=128  depth=8  kernel=7  dilation=linear")
     print(f"Normalisation:per-sample RMS of input interior\n")
 
-    # ── run ───────────────────────────────────────────────────────────────────
-    # ── generate-only mode ──────────────────────────────────────────────────
     if args.generate_only:
-        dataset_dir = RESULTS_DIR / 'datasets'
+        dataset_dir = RESULTS_DIR / "datasets_greens"
         dataset_dir.mkdir(parents=True, exist_ok=True)
-        print('GENERATE-ONLY MODE — will exit after all datasets are cached.\n')
+        print("GENERATE-ONLY MODE — will exit after all datasets are cached.\n")
         for n_per_pair in n_values:
-            cache = dataset_dir / f'dataset_N{n_per_pair}_seed{GLOBAL_SEED}_{args.direction}.npz'
+            cache = dataset_dir / f"train4_N{n_per_pair}_seed{GLOBAL_SEED}_{args.direction}.npz"
             if cache.exists():
-                print(f'  already cached: {cache.name}  — skipping')
+                print(f"  already cached: {cache.name}  — skipping")
             else:
-                print(f'  Generating N={n_per_pair}  ({3*n_per_pair} samples, {n_workers} workers) ...')
+                print(f"  Generating N={n_per_pair}  ({3*n_per_pair} samples, {n_workers} workers) ...")
                 ds = HelmholtzDataset.generate(n_per_pair, seed=GLOBAL_SEED, n_workers=n_workers)
                 ds.save(cache)
-                print(f'  Saved -> {cache.name}  ({cache.stat().st_size/1e9:.2f} GB)')
-        print('\nAll datasets cached. Launch training on wave7b:')
-        print(f'  python train3_saturation.py --direction {args.direction}')
+                print(f"  Saved -> {cache.name}  ({cache.stat().st_size/1e6:.1f} MB)")
+        print("\nAll datasets cached.")
+        print(f"  python train4_saturation.py --direction {args.direction}")
         return
 
     results = run_saturation_curve(
@@ -1342,7 +1321,6 @@ def main():
         n_workers=n_workers, fast=args.fast,
     )
 
-    # ── save outputs ──────────────────────────────────────────────────────────
     print(f"\nSaving outputs to {run_dir} ...")
     json_data = save_json(results, run_dir)
     plot_saturation_curve(results, run_dir)

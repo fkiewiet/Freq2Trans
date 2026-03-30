@@ -369,7 +369,7 @@ def plot_both_directions(runs_up, runs_down, outfile: Path):
         runs.sort(key=lambda r: (r["n"] or 0))
         n_v  = np.array([r["n"]              or float("nan") for r in runs])
         rl2  = np.array([r["test_rel_l2_re"] or float("nan") for r in runs])
-        triv = np.array([r["trivial"]         or float("nan") for r in runs])
+        triv = np.array([r.get("trivial_ulow") or float("nan") for r in runs])
         c    = DIR_COLORS[direction]
 
         ax.loglog(n_v, rl2  * 100, "o-",  color=c, lw=2.5, ms=9,

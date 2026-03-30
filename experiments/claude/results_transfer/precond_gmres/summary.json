@@ -1,0 +1,57 @@
+[
+  {
+    "problem": 1,
+    "n_sources": 5,
+    "iters_unpreconditioned": 200,
+    "iters_preconditioned": 200,
+    "speedup_factor": 1.0,
+    "converged_unpre": false,
+    "converged_pre": false,
+    "time_unpre_s": 110.98,
+    "time_pre_s": 1558.93
+  },
+  {
+    "problem": 2,
+    "n_sources": 4,
+    "iters_unpreconditioned": 200,
+    "iters_preconditioned": 200,
+    "speedup_factor": 1.0,
+    "converged_unpre": false,
+    "converged_pre": false,
+    "time_unpre_s": 141.8,
+    "time_pre_s": 1328.59
+  },
+  {
+    "problem": 3,
+    "n_sources": 3,
+    "iters_unpreconditioned": 200,
+    "iters_preconditioned": 200,
+    "speedup_factor": 1.0,
+    "converged_unpre": false,
+    "converged_pre": false,
+    "time_unpre_s": 127.66,
+    "time_pre_s": 1051.54
+  },
+  {
+    "problem": 4,
+    "n_sources": 5,
+    "iters_unpreconditioned": 200,
+    "iters_preconditioned": 200,
+    "speedup_factor": 1.0,
+    "converged_unpre": false,
+    "converged_pre": false,
+    "time_unpre_s": 106.25,
+    "time_pre_s": 1436.61
+  },
+  {
+    "problem": 5,
+    "n_sources": 3,
+    "iters_unpreconditioned": 200,
+    "iters_preconditioned": 200,
+    "speedup_factor": 1.0,
+    "converged_unpre": false,
+    "converged_pre": false,
+    "time_unpre_s": 155.97,
+    "time_pre_s": 1390.28
+  }
+]

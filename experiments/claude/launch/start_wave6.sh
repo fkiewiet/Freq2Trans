@@ -44,13 +44,15 @@ for i in "${!WINS[@]}"; do
     tmux send-keys -t "$SESSION:$WIN" "echo 'Waiting for DOWN dataset (checks every 30s)...'" Enter
     tmux send-keys -t "$SESSION:$WIN" "until [ -f \"\$DS/metadata.json\" ]; do sleep 30 && echo -n '.'; done" Enter
     tmux send-keys -t "$SESSION:$WIN" "echo '' && echo 'Dataset ready — starting $WIN'" Enter
-    tmux send-keys -t "$SESSION:$WIN" "$PY $SCRIPT \\" Enter
+    tmux send-keys -t "$SESSION:$WIN" "$PY -u $SCRIPT \\" Enter
     tmux send-keys -t "$SESSION:$WIN" "  --direction down --n 1200 \\" Enter
     tmux send-keys -t "$SESSION:$WIN" "  --dataset \$DS \\" Enter
     tmux send-keys -t "$SESSION:$WIN" "  --outdir  $OUT \\" Enter
     tmux send-keys -t "$SESSION:$WIN" "  --device  $DEV \\" Enter
     tmux send-keys -t "$SESSION:$WIN" "  --lambda_imag $LIM \\" Enter
     tmux send-keys -t "$SESSION:$WIN" "  --batch_size 2 \\" Enter
+    tmux send-keys -t "$SESSION:$WIN" "  --kernel 3 \\" Enter
+    tmux send-keys -t "$SESSION:$WIN" "  --n_dl_workers 0 \\" Enter
     tmux send-keys -t "$SESSION:$WIN" "  2>&1 | tee $LOG" Enter
 
     echo "  [$WIN]  device=$DEV  lambda_imag=$LIM  → $OUT"

@@ -205,13 +205,20 @@ class HelmholtzTransferDataset(Dataset):
       ch 28 : eta_norm   = (PML_SIGMA0[omega] - 42.5) / (180 - 42.5)
     """
 
-    def __init__(self, ds_path: Path, n_per_pair: int, direction: str):
+    def __init__(self, ds_path: Path, n_per_pair: int, direction: str,
+                 pair_idx: int = None):
         """
         Parameters
         ----------
         ds_path    : path to the dataset directory (e.g. datasets/up_N4800_seed42/)
         n_per_pair : how many samples to use from each pair block
         direction  : 'up' or 'down'
+        pair_idx   : None = all 3 pairs (default); 0/1/2 = single pair only.
+                     Pair layout in up dataset:   0→(16,32)  1→(32,64)  2→(64,128)
+                     Pair layout in down dataset:  0→(32,16)  1→(64,32)  2→(128,64)
+                     For the preconditioner (ω_L=32, ω_H=64):
+                       T_up  ← up   dataset, pair_idx=1  (input ω=32, target ω=64)
+                       T_down ← down dataset, pair_idx=1  (input ω=64, target ω=32)
         """
         import json
         ds_path = Path(ds_path)
@@ -233,14 +240,22 @@ class HelmholtzTransferDataset(Dataset):
         _rms_full       = np.load(ds_path / "rms.npy",       mmap_mode='r')
         _omega_full     = np.load(ds_path / "omega_low.npy", mmap_mode='r')
 
-        # Index mapping: first n_per_pair samples from each of 3 pair blocks
-        self._indices = (
-            list(range(0,           n_per_pair))
-            + list(range(n_max,     n_max     + n_per_pair))
-            + list(range(2 * n_max, 2 * n_max + n_per_pair))
-        )
+        # Index mapping
+        if pair_idx is None:
+            # All 3 pairs interleaved
+            self._indices = (
+                list(range(0,           n_per_pair))
+                + list(range(n_max,     n_max     + n_per_pair))
+                + list(range(2 * n_max, 2 * n_max + n_per_pair))
+            )
+        else:
+            # Single pair only: pair_idx ∈ {0, 1, 2}
+            start = pair_idx * n_max
+            self._indices = list(range(start, start + n_per_pair))
+
         self.n         = len(self._indices)
         self.direction = direction
+        self.pair_idx  = pair_idx
 
         # Pre-load the small scalar arrays into RAM (negligible: 3*n floats)
         idx = np.array(self._indices)
@@ -251,37 +266,24 @@ class HelmholtzTransferDataset(Dataset):
         return self.n
 
     def __getitem__(self, i: int):
-        raw = self._indices[i]   # index into the full on-disk array
+        raw   = self._indices[i]   # index into the full on-disk array
         omega = float(self.omega_low[i])
         eta   = PML_SIGMA0[int(round(omega))]
 
-        omega_norm = (omega - OMEGA_MIN) / (OMEGA_MAX - OMEGA_MIN)
-        eta_norm   = (eta   - ETA_MIN)   / (ETA_MAX   - ETA_MIN)
+        omega_norm = np.float32((omega - OMEGA_MIN) / (OMEGA_MAX - OMEGA_MIN))
+        eta_norm   = np.float32((eta   - ETA_MIN)   / (ETA_MAX   - ETA_MIN))
 
-        omega_field = np.full((GRID_N, GRID_N), omega_norm, dtype=np.float32)
-        eta_field   = np.full((GRID_N, GRID_N), eta_norm,   dtype=np.float32)
-
-        # Each indexing op reads ~1 MB from disk (or page cache)
-        inp = np.concatenate([
-            np.array(self._u_low_re[raw])[None],   # ch 0
-            np.array(self._u_low_im[raw])[None],   # ch 1
-            _FOURIER,                               # ch 2-25
-            _PML_MAP[None],                         # ch 26
-            omega_field[None],                      # ch 27
-            eta_field[None],                        # ch 28
-        ], axis=0)                                  # (29, 512, 512) float32
-
-        tgt = np.stack([
-            np.array(self._u_high_re[raw]),
-            np.array(self._u_high_im[raw]),
-        ], axis=0)
-
-        src = np.array(self._source_re[raw])
-
+        # Only read the 5 dynamic arrays from disk (~5 MB total).
+        # Static channels (Fourier×24 + PML×1) are assembled on the GPU in the
+        # training loop from a pre-built tensor — no per-sample allocation needed.
         return (
-            torch.from_numpy(inp),
-            torch.from_numpy(tgt),
-            torch.from_numpy(src),
+            torch.from_numpy(np.array(self._u_low_re[raw])),   # (512,512) ch 0
+            torch.from_numpy(np.array(self._u_low_im[raw])),   # (512,512) ch 1
+            torch.from_numpy(np.array(self._u_high_re[raw])),  # (512,512) target re
+            torch.from_numpy(np.array(self._u_high_im[raw])),  # (512,512) target im
+            torch.from_numpy(np.array(self._source_re[raw])),  # (512,512) source
+            torch.tensor(omega_norm),                           # scalar
+            torch.tensor(eta_norm),                             # scalar
         )
 
 
@@ -457,26 +459,69 @@ class CombinedLoss(nn.Module):
 
 # ── training loop ──────────────────────────────────────────────────────────────
 
-def _omega_target(inp: torch.Tensor, direction: str) -> torch.Tensor:
-    """Decode omega_in from channel 27, compute omega_out."""
-    omega_in = inp[:, 27, 0, 0] * (OMEGA_MAX - OMEGA_MIN) + OMEGA_MIN
+def _make_static(device: torch.device) -> torch.Tensor:
+    """Build the 25 static input channels (Fourier×24 + PML×1) on `device`.
+    Called once per training run; returned tensor is (1, 25, 512, 512)."""
+    static_np = np.concatenate([_FOURIER, _PML_MAP[None]], axis=0)  # (25,512,512)
+    return torch.from_numpy(static_np).unsqueeze(0).to(device)      # (1,25,512,512)
+
+
+def _build_inp(u_re: torch.Tensor, u_im: torch.Tensor,
+               omega_norms: torch.Tensor, eta_norms: torch.Tensor,
+               static: torch.Tensor) -> torch.Tensor:
+    """Assemble the 29-channel input tensor on-device.
+
+    u_re, u_im    : (B, H, W)  — dynamic fields, already on device
+    omega_norms   : (B,)       — normalised omega_in scalars
+    eta_norms     : (B,)       — normalised eta scalars
+    static        : (1,25,H,W) — Fourier+PML, pre-built on device
+
+    Returns (B, 29, H, W).  The expand() on static is a zero-copy view;
+    only torch.cat() allocates the final contiguous buffer (on GPU HBM).
+    """
+    B, H, W = u_re.shape
+    u_low   = torch.stack([u_re, u_im], dim=1)                      # (B, 2, H, W)
+    omega_f = omega_norms.view(B, 1, 1, 1).expand(B, 1, H, W)      # (B, 1, H, W)
+    eta_f   = eta_norms.view(B, 1, 1, 1).expand(B, 1, H, W)        # (B, 1, H, W)
+    return torch.cat([u_low, static.expand(B, -1, H, W),
+                      omega_f, eta_f], dim=1)                        # (B, 29, H, W)
+
+
+def _omega_target(omega_norms: torch.Tensor, direction: str) -> torch.Tensor:
+    """Compute omega_target from normalised omega_in scalars."""
+    omega_in = omega_norms * (OMEGA_MAX - OMEGA_MIN) + OMEGA_MIN
     return omega_in * 2.0 if direction == "up" else omega_in / 2.0
 
 
-def _train_one_epoch(model, loader, optimiser, loss_fn, device, direction):
+def _train_one_epoch(model, loader, optimiser, loss_fn, device, direction,
+                     static, scaler=None):
     model.train()
     totals    = {"mse_re": 0, "rel_l2_re": 0, "rel_l2_im": 0,
                  "residual": 0, "total": 0}
     n_batches = 0
-    for inp, tgt, src in loader:
-        inp, tgt, src = inp.to(device), tgt.to(device), src.to(device)
-        omega_tgt = _omega_target(inp, direction).to(device)
+    use_bf16  = device.type == "cuda"
+    for u_re, u_im, tgt_re, tgt_im, src, omega_n, eta_n in loader:
+        u_re    = u_re.to(device);    u_im    = u_im.to(device)
+        tgt_re  = tgt_re.to(device);  tgt_im  = tgt_im.to(device)
+        src     = src.to(device)
+        omega_n = omega_n.to(device); eta_n   = eta_n.to(device)
+
+        inp       = _build_inp(u_re, u_im, omega_n, eta_n, static)
+        tgt       = torch.stack([tgt_re, tgt_im], dim=1)
+        omega_tgt = _omega_target(omega_n, direction)
+
         optimiser.zero_grad()
-        pred   = model(inp)
-        losses = loss_fn(pred, tgt, src, omega_tgt)
+        if use_bf16:
+            with torch.amp.autocast("cuda", dtype=torch.bfloat16):
+                pred   = model(inp)
+                losses = loss_fn(pred, tgt, src, omega_tgt)
+        else:
+            pred   = model(inp)
+            losses = loss_fn(pred, tgt, src, omega_tgt)
         losses["total"].backward()
         torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
         optimiser.step()
+
         for k in totals:
             v = losses[k]
             totals[k] += v.item() if hasattr(v, "item") else float(v)
@@ -485,7 +530,7 @@ def _train_one_epoch(model, loader, optimiser, loss_fn, device, direction):
 
 
 @torch.no_grad()
-def _evaluate(model, loader, device, direction):
+def _evaluate(model, loader, device, direction, static):
     """Returns mean interior metrics across all batches and per frequency pair."""
     model.eval()
     mask = _interior_mask(device=device)
@@ -501,14 +546,17 @@ def _evaluate(model, loader, device, direction):
           for pk in pair_keys}
     all_re, all_im = [], []
 
-    for inp, tgt, _ in loader:
-        inp, tgt = inp.to(device), tgt.to(device)
-        pred     = model(inp)
-        omega_ins = (
-            inp[:, 27, 0, 0].cpu().numpy() * (OMEGA_MAX - OMEGA_MIN) + OMEGA_MIN
-        ).round().astype(int)
+    for u_re, u_im, tgt_re, tgt_im, _, omega_n, eta_n in loader:
+        u_re    = u_re.to(device);   u_im    = u_im.to(device)
+        tgt_re  = tgt_re.to(device); tgt_im  = tgt_im.to(device)
+        omega_n = omega_n.to(device); eta_n  = eta_n.to(device)
+        inp  = _build_inp(u_re, u_im, omega_n, eta_n, static)
+        tgt  = torch.stack([tgt_re, tgt_im], dim=1)
+        pred = model(inp)
+        omega_ins = (omega_n.cpu().numpy() * (OMEGA_MAX - OMEGA_MIN) + OMEGA_MIN
+                     ).round().astype(int)
 
-        for b in range(inp.shape[0]):
+        for b in range(pred.shape[0]):
             oi = omega_ins[b]
             ot = oi * 2 if direction == "up" else oi // 2
             pk = f"{oi}→{ot}"
@@ -555,10 +603,10 @@ def _trivial_zero_baseline(loader, device):
     mask = _interior_mask(device=device)
     m2   = mask[0, 0]
     re_vals, im_vals = [], []
-    for _, tgt, _ in loader:
-        tgt = tgt.to(device)
-        for b in range(tgt.shape[0]):
-            t_re = tgt[b, 0][m2]; t_im = tgt[b, 1][m2]
+    for _, _, tgt_re, tgt_im, _, _, _ in loader:
+        tgt_re = tgt_re.to(device); tgt_im = tgt_im.to(device)
+        for b in range(tgt_re.shape[0]):
+            t_re = tgt_re[b][m2]; t_im = tgt_im[b][m2]
             re_vals.append((t_re.norm() / (t_re.norm() + 1e-8)).item())   # = 1.0
             im_vals.append((t_im.norm() / (t_im.norm() + 1e-8)).item())   # = 1.0
     return {
@@ -579,16 +627,16 @@ def _ulow_baseline(loader, device):
     mask = _interior_mask(device=device)
     m2   = mask[0, 0]
     errs = []
-    for inp, tgt, _ in loader:
-        inp, tgt = inp.to(device), tgt.to(device)
-        for b in range(inp.shape[0]):
-            p_re = inp[b, 0][m2]; t_re = tgt[b, 0][m2]
+    for u_re, _, tgt_re, _, _, _, _ in loader:
+        u_re   = u_re.to(device);   tgt_re = tgt_re.to(device)
+        for b in range(u_re.shape[0]):
+            p_re = u_re[b][m2]; t_re = tgt_re[b][m2]
             errs.append(((p_re - t_re).norm() / (t_re.norm() + 1e-8)).item())
     return {"mean_re": float(np.mean(errs)), "std_re": float(np.std(errs))}
 
 
 @torch.no_grad()
-def _doubling_test(model, loader, device):
+def _doubling_test(model, loader, device, static):
     """
     Scale-equivariance test: does N(2 · u_low) = 2 · N(u_low)?
 
@@ -621,15 +669,16 @@ def _doubling_test(model, loader, device):
     m2   = mask[0, 0]
     errs_re, errs_im = [], []
 
-    for inp, _, _ in loader:
-        inp = inp.to(device)
+    for u_re, u_im, _, _, _, omega_n, eta_n in loader:
+        u_re    = u_re.to(device);    u_im    = u_im.to(device)
+        omega_n = omega_n.to(device); eta_n   = eta_n.to(device)
         with torch.no_grad():
+            inp     = _build_inp(u_re,         u_im,         omega_n, eta_n, static)
+            inp_2x  = _build_inp(u_re * 2.0,   u_im * 2.0,   omega_n, eta_n, static)
             pred_1x = model(inp)
-            inp_2x        = inp.clone()
-            inp_2x[:, 0:2] = inp[:, 0:2] * 2.0
             pred_2x = model(inp_2x)
 
-        for b in range(inp.shape[0]):
+        for b in range(pred_1x.shape[0]):
             p1_re = pred_1x[b, 0][m2]; p2_re = pred_2x[b, 0][m2]
             p1_im = pred_1x[b, 1][m2]; p2_im = pred_2x[b, 1][m2]
             denom_re = (2 * p1_re).norm() + 1e-8
@@ -701,13 +750,16 @@ def train(
     kernel:       int     = 7,
     dilation_mode: str    = "linear",
     activation:   str     = "relu",
-    n_dl_workers: int     = 4,
+    n_dl_workers: int     = 0,
+    pair_idx:     int     = None,
+    scheduler_t0: int     = 50,
     verbose:      bool    = True,
 ) -> dict:
     outdir.mkdir(parents=True, exist_ok=True)
 
     # ── dataset ────────────────────────────────────────────────────────────────
-    ds = HelmholtzTransferDataset(dataset_path, n_per_pair=n, direction=direction)
+    ds = HelmholtzTransferDataset(dataset_path, n_per_pair=n, direction=direction,
+                                   pair_idx=pair_idx)
     train_ds, val_ds, test_ds = make_train_val_test_split(ds)
 
     if verbose:
@@ -726,6 +778,9 @@ def train(
     test_loader  = DataLoader(test_ds,  batch_size=batch_size, shuffle=False,
                               num_workers=n_dl_workers, pin_memory=pin,
                               persistent_workers=pw)
+
+    # ── static GPU tensor (Fourier×24 + PML×1, shared across all batches) ──────
+    static = _make_static(device)   # (1, 25, 512, 512) — built once, never recomputed
 
     # ── model ──────────────────────────────────────────────────────────────────
     model = FrequencyTransferCNN(
@@ -749,10 +804,16 @@ def train(
     )
     optimiser = optim.AdamW(model.parameters(), lr=lr, weight_decay=1e-4)
 
-    # Change 3: CosineAnnealingWarmRestarts — cycles 50, 100, 200, 400 epochs
+    # CosineAnnealingWarmRestarts — T_0 configurable, T_mult=2
     scheduler = optim.lr_scheduler.CosineAnnealingWarmRestarts(
-        optimiser, T_0=50, T_mult=2, eta_min=1e-6
+        optimiser, T_0=scheduler_t0, T_mult=2, eta_min=1e-6
     )
+
+    # bf16 autocast on CUDA — no GradScaler needed (bf16 has fp32 dynamic range)
+    use_bf16 = device.type == "cuda"
+    scaler   = None   # GradScaler only needed for fp16; bf16 is safe without it
+    if verbose:
+        print(f"  AMP: {'enabled (bf16)' if use_bf16 else 'disabled (cpu)'}")
 
     # ── training loop ──────────────────────────────────────────────────────────
     best_val   = float("inf")
@@ -771,8 +832,8 @@ def train(
         t0 = time.time()
 
         tr = _train_one_epoch(model, train_loader, optimiser, loss_fn,
-                              device, direction)
-        va = _evaluate(model, val_loader, device, direction)
+                              device, direction, static, scaler)
+        va = _evaluate(model, val_loader, device, direction, static)
 
         # Change 3: step scheduler once per epoch after validation
         current_lr = optimiser.param_groups[0]["lr"]
@@ -849,10 +910,10 @@ def train(
             print("  Warning: no best_state (training did not complete one epoch).")
 
     # ── test evaluation ────────────────────────────────────────────────────────
-    test_eval    = _evaluate(model, test_loader, device, direction)
+    test_eval    = _evaluate(model, test_loader, device, direction, static)
     zero_base    = _trivial_zero_baseline(test_loader, device)
     ulow_base    = _ulow_baseline(test_loader, device)
-    doubling     = _doubling_test(model, test_loader, device)
+    doubling     = _doubling_test(model, test_loader, device, static)
 
     if verbose:
         print(f"  Test  rel_l2_re={test_eval['rel_l2_re']*100:.2f}%  "
@@ -1085,7 +1146,7 @@ def main():
     parser.add_argument("--patience",    type=int,   default=150)
     parser.add_argument("--no_early_stop", action="store_true",
                         help="Run all max_epochs regardless of early stopping.")
-    parser.add_argument("--batch_size",  type=int,   default=4)
+    parser.add_argument("--batch_size",  type=int,   default=8)
     parser.add_argument("--lambda1",     type=float, default=1.0)
     parser.add_argument("--lambda2",     type=float, default=1.0)
     parser.add_argument("--lambda3",     type=float, default=0.0)
@@ -1100,7 +1161,20 @@ def main():
                         choices=["linear", "geometric"])
     parser.add_argument("--activation",  type=str,   default="relu",
                         choices=["relu", "gelu"])
-    parser.add_argument("--n_dl_workers", type=int,  default=4)
+    parser.add_argument("--n_dl_workers", type=int,  default=0,
+                        help="DataLoader worker processes. Default 0 (main process) "
+                             "— avoids memmap fork-deadlock on Linux NFS.")
+    parser.add_argument("--pair_idx",    type=int,   default=None,
+                        help="Train on a single frequency pair only (0/1/2). "
+                             "None (default) = all 3 pairs. "
+                             "For preconditioner (ω_L=32, ω_H=64): "
+                             "  T_up  → up   dataset --pair_idx 1  "
+                             "  T_down → down dataset --pair_idx 1")
+    parser.add_argument("--scheduler_T0", type=int, default=50,
+                        help="CosineAnnealingWarmRestarts T_0 (first cycle length "
+                             "in epochs). Restarts occur at T_0, T_0+2*T_0, ... "
+                             "Default 50. For ~95-epoch budgets use 30 "
+                             "(two complete cycles: 0-30, 30-90).")
 
     args = parser.parse_args()
 
@@ -1118,6 +1192,7 @@ def main():
 
     print(f"\ntrain_transfer.py")
     print(f"  direction    = {args.direction}")
+    print(f"  pair_idx     = {args.pair_idx}  (None=all 3 pairs)")
     print(f"  n_per_pair   = {args.n}")
     print(f"  dataset      = {args.dataset}")
     print(f"  outdir       = {outdir}")
@@ -1129,6 +1204,7 @@ def main():
     print(f"  lambda3      = {args.lambda3}")
     print(f"  arch         = w={args.width} d={args.depth} k={args.kernel} "
           f"dil={args.dilation} act={args.activation}")
+    print(f"  scheduler    = CosineWarmRestarts T_0={args.scheduler_T0} T_mult=2")
     print()
 
     train(
@@ -1152,6 +1228,8 @@ def main():
         dilation_mode = args.dilation,
         activation    = args.activation,
         n_dl_workers  = args.n_dl_workers,
+        pair_idx      = args.pair_idx,
+        scheduler_t0  = args.scheduler_T0,
         verbose       = True,
     )
 

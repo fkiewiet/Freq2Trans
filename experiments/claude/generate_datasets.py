@@ -277,7 +277,7 @@ def generate(direction: str, n_max: int, n_workers: int, seed: int,
                       f"{rate:.1f} samples/s)", flush=True)
 
             # Periodically flush dirty memmap pages to disk to avoid OOM.
-            if done % 500 == 0:
+            if done % 100 == 0:
                 for arr in (u_low_re, u_low_im, u_high_re, u_high_im, source_re):
                     arr.flush()
 

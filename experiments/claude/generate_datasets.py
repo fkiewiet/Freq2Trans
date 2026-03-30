@@ -276,6 +276,11 @@ def generate(direction: str, n_max: int, n_workers: int, seed: int,
                       f"({elapsed:.0f}s elapsed, ETA {eta:.0f}s, "
                       f"{rate:.1f} samples/s)", flush=True)
 
+            # Periodically flush dirty memmap pages to disk to avoid OOM.
+            if done % 500 == 0:
+                for arr in (u_low_re, u_low_im, u_high_re, u_high_im, source_re):
+                    arr.flush()
+
     elapsed = time.time() - t0
     print(f"\nGeneration complete: {elapsed:.1f}s  "
           f"({elapsed / n_total:.3f}s/sample)")

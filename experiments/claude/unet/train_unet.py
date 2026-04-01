@@ -596,8 +596,8 @@ def train(args):
 
     # 5. Loss, optimiser, scheduler
     loss_fn = SpatialWeightedLoss(
-        lambda_mse=1.0, lambda_re=1.0, lambda_im=1.0,
-        interior_w=1.0, pml_w=0.05, device=device,
+        lambda_mse=0.0, lambda_re=1.0, lambda_im=1.0,
+        interior_w=1.0, pml_w=0.0, device=device,
     )
     optimiser = torch.optim.AdamW(model.parameters(), lr=args.lr, weight_decay=1e-4)
     scheduler = torch.optim.lr_scheduler.CosineAnnealingWarmRestarts(

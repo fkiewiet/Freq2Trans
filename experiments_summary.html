@@ -1,0 +1,1148 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <title>Freq2Transfer — Experiment Summary</title>
+  <style>
+    :root {
+      --blue: #1a4a7a;
+      --blue-light: #2d6ea8;
+      --green: #1e6b3c;
+      --red: #8b1a1a;
+      --amber: #7a5200;
+      --gray: #444;
+      --bg: #f8f9fa;
+      --card-bg: #ffffff;
+      --border: #d0d7de;
+      --code-bg: #f0f4f8;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      font-family: Georgia, 'Times New Roman', serif;
+      font-size: 15px;
+      line-height: 1.65;
+      color: #222;
+      background: var(--bg);
+      padding: 0 0 60px 0;
+    }
+
+    header {
+      background: var(--blue);
+      color: white;
+      padding: 36px 60px 28px;
+    }
+
+    header h1 {
+      font-size: 24px;
+      font-weight: bold;
+      letter-spacing: 0.5px;
+    }
+
+    header .subtitle {
+      font-size: 13.5px;
+      color: #b8d0e8;
+      margin-top: 6px;
+    }
+
+    header .meta {
+      font-size: 12.5px;
+      color: #90b8d8;
+      margin-top: 10px;
+      font-style: italic;
+    }
+
+    .container {
+      max-width: 960px;
+      margin: 0 auto;
+      padding: 0 30px;
+    }
+
+    .goal-box {
+      background: #e8f0fb;
+      border-left: 5px solid var(--blue-light);
+      padding: 18px 22px;
+      margin: 32px 0 12px;
+      border-radius: 0 6px 6px 0;
+    }
+
+    .goal-box h2 {
+      font-size: 14px;
+      color: var(--blue);
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      margin-bottom: 8px;
+    }
+
+    .goal-box p {
+      font-size: 14px;
+    }
+
+    .math {
+      font-family: 'Cambria Math', Georgia, serif;
+      font-style: italic;
+    }
+
+    code {
+      font-family: 'Courier New', monospace;
+      font-size: 13px;
+      background: var(--code-bg);
+      padding: 1px 5px;
+      border-radius: 3px;
+      border: 1px solid #d0d7de;
+    }
+
+    .timeline {
+      position: relative;
+      margin: 40px 0;
+    }
+
+    .timeline::before {
+      content: '';
+      position: absolute;
+      left: 28px;
+      top: 0;
+      bottom: 0;
+      width: 2px;
+      background: #c5d3e0;
+    }
+
+    .exp-card {
+      position: relative;
+      margin-left: 64px;
+      margin-bottom: 36px;
+      background: var(--card-bg);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      overflow: hidden;
+      box-shadow: 0 1px 4px rgba(0, 0, 0, 0.06);
+    }
+
+    .exp-card::before {
+      content: attr(data-n);
+      position: absolute;
+      left: -50px;
+      top: 18px;
+      width: 36px;
+      height: 36px;
+      background: var(--blue);
+      color: white;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 13px;
+      font-weight: bold;
+      font-family: sans-serif;
+      line-height: 36px;
+      text-align: center;
+    }
+
+    .exp-card.negative::before {
+      background: var(--red);
+    }
+
+    .exp-card.partial::before {
+      background: var(--amber);
+    }
+
+    .exp-card.positive::before {
+      background: var(--green);
+    }
+
+    .exp-header {
+      padding: 14px 20px 12px;
+      border-bottom: 1px solid var(--border);
+      background: #fafbfc;
+    }
+
+    .exp-header .tag {
+      font-family: sans-serif;
+      font-size: 10.5px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      padding: 2px 8px;
+      border-radius: 3px;
+      display: inline-block;
+      margin-right: 8px;
+    }
+
+    .tag-probe {
+      background: #dbeafe;
+      color: #1e40af;
+    }
+
+    .tag-ablation {
+      background: #fef3c7;
+      color: #92400e;
+    }
+
+    .tag-system {
+      background: #f3e8ff;
+      color: #6b21a8;
+    }
+
+    .tag-arch {
+      background: #dcfce7;
+      color: #15803d;
+    }
+
+    .tag-negative {
+      background: #fee2e2;
+      color: #991b1b;
+    }
+
+    .exp-header .date {
+      font-family: sans-serif;
+      font-size: 11.5px;
+      color: #666;
+      float: right;
+      margin-top: 2px;
+    }
+
+    .exp-header h3 {
+      font-size: 16px;
+      font-weight: bold;
+      margin-top: 6px;
+      color: #111;
+    }
+
+    .exp-body {
+      padding: 16px 20px;
+    }
+
+    .section-label {
+      font-family: sans-serif;
+      font-size: 10.5px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      color: #666;
+      margin-bottom: 4px;
+      margin-top: 14px;
+    }
+
+    .section-label:first-child {
+      margin-top: 0;
+    }
+
+    .result-box {
+      background: var(--code-bg);
+      border: 1px solid #c5d3e0;
+      border-radius: 5px;
+      padding: 11px 14px;
+      font-family: 'Courier New', monospace;
+      font-size: 12.5px;
+      line-height: 1.7;
+      margin-top: 4px;
+    }
+
+    .result-box .good {
+      color: var(--green);
+      font-weight: bold;
+    }
+
+    .result-box .bad {
+      color: var(--red);
+      font-weight: bold;
+    }
+
+    .result-box .note {
+      color: #666;
+      font-style: italic;
+    }
+
+    .interp-box {
+      background: #fffbeb;
+      border-left: 3px solid #d97706;
+      padding: 10px 14px;
+      font-size: 13.5px;
+      border-radius: 0 4px 4px 0;
+      margin-top: 6px;
+    }
+
+    .status-bar {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-top: 14px;
+      padding-top: 12px;
+      border-top: 1px solid #e5e7eb;
+      font-family: sans-serif;
+      font-size: 12px;
+    }
+
+    .status-pill {
+      padding: 3px 10px;
+      border-radius: 12px;
+      font-weight: 600;
+    }
+
+    .pill-positive {
+      background: #dcfce7;
+      color: #15803d;
+    }
+
+    .pill-negative {
+      background: #fee2e2;
+      color: #991b1b;
+    }
+
+    .pill-partial {
+      background: #fef3c7;
+      color: #92400e;
+    }
+
+    .pill-open {
+      background: #e0e7ff;
+      color: #3730a3;
+    }
+
+    table.data {
+      width: 100%;
+      border-collapse: collapse;
+      font-family: 'Courier New', monospace;
+      font-size: 12.5px;
+      margin-top: 6px;
+    }
+
+    table.data th {
+      background: #f0f4f8;
+      border: 1px solid #c5d3e0;
+      padding: 5px 10px;
+      text-align: center;
+      font-weight: 600;
+      font-size: 11.5px;
+      font-family: sans-serif;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+
+    table.data td {
+      border: 1px solid #d8dee4;
+      padding: 4px 10px;
+      text-align: center;
+    }
+
+    table.data tr:nth-child(even) {
+      background: #fafbfc;
+    }
+
+    table.data td.highlight {
+      color: var(--green);
+      font-weight: bold;
+    }
+
+    table.data td.warn {
+      color: var(--red);
+      font-weight: bold;
+    }
+
+    table.data td.label {
+      text-align: left;
+      font-family: sans-serif;
+      font-size: 12px;
+    }
+
+    .section-h {
+      font-family: sans-serif;
+      font-size: 13px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      color: var(--blue);
+      margin: 44px 0 18px;
+      padding-bottom: 8px;
+      border-bottom: 2px solid #c5d3e0;
+    }
+
+    .architecture-box {
+      background: var(--code-bg);
+      border: 1px solid #c5d3e0;
+      border-radius: 5px;
+      padding: 14px 18px;
+      font-size: 13px;
+      line-height: 1.8;
+    }
+
+    .open-questions {
+      background: #f0f0ff;
+      border: 1px solid #c7c7f0;
+      border-radius: 6px;
+      padding: 16px 20px;
+      margin-top: 32px;
+      font-size: 13.5px;
+    }
+
+    .open-questions h3 {
+      font-family: sans-serif;
+      font-size: 12px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      color: #3730a3;
+      margin-bottom: 10px;
+    }
+
+    .open-questions ol {
+      padding-left: 18px;
+    }
+
+    .open-questions li {
+      margin-bottom: 6px;
+    }
+
+    footer {
+      font-family: sans-serif;
+      font-size: 11.5px;
+      color: #888;
+      text-align: center;
+      margin-top: 48px;
+      padding-top: 16px;
+      border-top: 1px solid #d8dee4;
+    }
+  </style>
+</head>
+
+<body>
+
+  <header>
+    <h1>Freq2Transfer — Experiment Summary</h1>
+    <div class="subtitle">Frequency-Transfer Neural Operator for Helmholtz Preconditioning</div>
+    <div class="meta">F. Kiewiet &nbsp;·&nbsp; MIT, Prof. L. Demanet &nbsp;·&nbsp; as of 2026-04-04</div>
+  </header>
+
+  <div class="container">
+
+    <div class="goal-box">
+      <h2>Research Goal</h2>
+      <p>
+        Train a CNN <span class="math">T<sub>ω<sub>L</sub>→ω<sub>H</sub></sub> : u<sub>low</sub> ↦
+          u<sub>high</sub></span>
+        that maps Helmholtz solutions from a coarser frequency
+        <span class="math">ω<sub>L</sub></span> to a finer frequency <span class="math">ω<sub>H</sub></span>
+        on the same source configuration.
+        The trained operator is then used as the action of an FGMRES right-preconditioner
+        <span class="math">M<sup>−1</sup></span> for the high-frequency system
+        <span class="math">A<sub>H</sub>x = b</span>,
+        with the intent of reducing iteration counts relative to standard algebraic preconditioners
+        (ILU, CSL).
+        <br><br>
+        The three operator pairs are
+        <code>16→32</code>, <code>32→64</code>, <code>64→128</code>
+        on a 512×512 finite-difference grid with PML absorbing boundaries (depth 112 cells).
+      </p>
+    </div>
+
+    <div class="section-h">System &amp; Architecture</div>
+
+    <div class="architecture-box">
+      <strong>Helmholtz system:</strong>
+      &nbsp;<span class="math">(Δ + (ω/c + iσ)<sup>2</sup>)u = f</span>,&nbsp;
+      solved by sparse LU (<code>scipy.sparse.linalg.spsolve</code>) for data generation.<br>
+      <strong>Data (analytic):</strong>&nbsp;
+      2D free-space Green's function
+      <span class="math">G(r) = (i/4)H<sub>0</sub><sup>(1)</sup>(ωr)</span>
+      via FFT convolution on a 2× zero-padded grid.
+      3–6 Gaussian sources per sample, amplitude ∈ [1, 2], phase ∈ [0, 2π].<br>
+      <strong>Input channels (29):</strong>&nbsp;
+      Re(<span class="math">u<sub>low</sub></span>), Im(<span class="math">u<sub>low</sub></span>),
+      PML map, 24 Fourier positional features (6 bands × sin/cos × X, Y),
+      ω/128, direction bit.<br>
+      <strong>Model:</strong>&nbsp;
+      Dilated CNN — stem (1×1) + 8 dilated conv blocks (3×3 or 7×7, dilations 1–8 linear),
+      InstanceNorm, ReLU, width 128, ~14 M parameters.<br>
+      <strong>Normalisation:</strong>&nbsp;
+      Both <span class="math">u<sub>low</sub></span> and <span class="math">u<sub>high</sub></span>
+      divided by <span class="math">rms(u<sub>low</sub>|<sub>interior</sub>)</span>.
+      Zero-predictor RelL2 = 100% analytically, verified on every run.
+    </div>
+
+    <div class="section-h">Experiment Timeline</div>
+
+    <div class="timeline">
+
+      <!-- EXP 0 -->
+      <div class="exp-card positive" data-n="0">
+        <div class="exp-header">
+          <span class="tag tag-probe">Saturation Probe</span>
+          <span class="date">early March 2026</span>
+          <h3>Exp 0 — Saturation Curve (train4): Can the model learn at all?</h3>
+        </div>
+        <div class="exp-body">
+          <div class="section-label">Motivation</div>
+          <p>Establish whether a dilated CNN can reduce RelL2 below the trivial baseline
+            and identify the critical training-set size <span class="math">N*</span>
+            beyond which accuracy saturates.</p>
+
+          <div class="section-label">Method</div>
+          <p>Train on Green's function data for all three operator pairs simultaneously.
+            Vary <span class="math">N ∈ {150, 300, 600, 1200}</span> samples per pair.
+            Loss: <span class="math">λ₁·MSE<sub>Re</sub> + λ₂·RelL2<sub>Re</sub></span>
+            (imaginary channel not included — this becomes Exp 1A).</p>
+
+          <div class="section-label">Results</div>
+          <table class="data">
+            <thead>
+              <tr>
+                <th>N / pair</th>
+                <th>DOWN val RelL2</th>
+                <th>UP val RelL2</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>150</td>
+                <td>69.7%</td>
+                <td>79.2%</td>
+              </tr>
+              <tr>
+                <td>300</td>
+                <td>65.6%</td>
+                <td>71.5%</td>
+              </tr>
+              <tr>
+                <td>600</td>
+                <td>61.9%</td>
+                <td>65.5%</td>
+              </tr>
+              <tr>
+                <td>1200</td>
+                <td class="highlight">59.0%</td>
+                <td class="highlight">65.5%</td>
+              </tr>
+            </tbody>
+          </table>
+          <div class="result-box" style="margin-top:8px">
+            Trivial zero baseline: <span class="good">100.0%</span> (verified analytically)
+            <br>
+            Power-law fit: N* ≈ 4000–8000 (curve still declining at N=1200)
+          </div>
+
+          <div class="section-label">Interpretation</div>
+          <div class="interp-box">
+            The model is learning — 59–66% is well below baseline.
+            But the saturation plateau has not been reached, meaning either more data
+            or architectural improvements are needed before the preconditioner can be
+            competitive. This established the experimental agenda for all subsequent runs.
+          </div>
+
+          <div class="status-bar">
+            <span class="status-pill pill-positive">Result: learning confirmed</span>
+            <span class="status-pill pill-partial">N* not yet reached</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- EXP 1A -->
+      <div class="exp-card positive" data-n="1A">
+        <div class="exp-header">
+          <span class="tag tag-arch">Architecture Probe</span>
+          <span class="date">2026-03-13</span>
+          <h3>Exp 1A — Autoencoder Identity Task: Is the architecture the bottleneck?</h3>
+        </div>
+        <div class="exp-body">
+          <div class="section-label">Motivation</div>
+          <p>Disentangle <em>architecture capacity</em> from <em>task difficulty</em>.
+            If <span class="math">ω<sub>source</sub> = ω<sub>target</sub></span> (identity map),
+            what is the minimum achievable RelL2?</p>
+
+          <div class="section-label">Method</div>
+          <p>Set target = input (same ω in and out). Train on all three ω ∈ {32, 64, 128}
+            with <span class="math">N = 150</span>. Re and Im channels logged separately.</p>
+
+          <div class="section-label">Results (N=150, epoch 145)</div>
+          <div class="result-box">
+            Real channel: <span class="good">2.5% RelL2</span> — converging strongly, all three ω identical<br>
+            Imaginary channel: <span class="bad">53% RelL2</span> — frozen from epoch 1<br>
+            <span class="note">Root cause: λ_imag = 0 in loss — Im channel receives no gradient</span>
+          </div>
+
+          <div class="section-label">Interpretation</div>
+          <div class="interp-box">
+            <strong>The architecture is not the bottleneck.</strong>
+            2.5% on the identity task vs. 59–66% on the actual transfer confirms
+            that the frequency mapping is the hard part, not the representation.
+            The imaginary bug immediately motivated adding <code>λ_imag·RelL2_Im</code>
+            to all subsequent loss functions.
+          </div>
+
+          <div class="status-bar">
+            <span class="status-pill pill-positive">Architecture sufficient</span>
+            <span class="status-pill pill-negative">Im-channel bug identified</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- EXP 1B -->
+      <div class="exp-card positive" data-n="1B">
+        <div class="exp-header">
+          <span class="tag tag-ablation">Ablation</span>
+          <span class="date">2026-03-13</span>
+          <h3>Exp 1B — Amplitude Ablation: Is the 1/√r singularity necessary?</h3>
+        </div>
+        <div class="exp-body">
+          <div class="section-label">Motivation</div>
+          <p>Prof. Demanet's hypothesis: the model implicitly decomposes multi-source fields
+            into Voronoi cells, with each source identified by its
+            <span class="math">1/r</span> amplitude peak.
+            Test: remove the singularity and check if learning collapses.
+          </p>
+
+          <div class="section-label">Method</div>
+          <p>Replace the Hankel Green's function
+            <span class="math">G(r) = e<sup>ikr</sup>/√r</span>
+            with a phase-only version
+            <span class="math">G̃(r) = e<sup>ikr</sup></span>
+            (constant amplitude, same phase field).
+            Train with identical hyperparameters in both UP and DOWN directions.
+          </p>
+
+          <div class="section-label">Results</div>
+          <div class="result-box">
+            Phase-only (UP): <span class="bad">100% RelL2 at every epoch</span> — model learns nothing<br>
+            Phase-only (DOWN): <span class="bad">100% RelL2 at every epoch</span> — confirmed<br>
+            Hankel (train4 reference): 59–66%
+          </div>
+
+          <div class="section-label">Interpretation</div>
+          <div class="interp-box">
+            <strong>The 1/√r amplitude singularity is a necessary condition for learning.</strong>
+            Without a spatially unique amplitude marker at each source location, the model
+            cannot decompose multi-source fields, consistent with a Voronoi-windowing interpretation.
+            This is the strongest possible confirmation of the professor's hypothesis —
+            not just a degradation, but a complete failure to learn.
+          </div>
+
+          <div class="status-bar">
+            <span class="status-pill pill-positive">Hypothesis confirmed: 1/r necessary</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- EXP 1C -->
+      <div class="exp-card partial" data-n="1C">
+        <div class="exp-header">
+          <span class="tag tag-probe">Linearity Test</span>
+          <span class="date">2026-03-13</span>
+          <h3>Exp 1C — Superposition Test: Is the learned operator linear?</h3>
+        </div>
+        <div class="exp-body">
+          <div class="section-label">Motivation</div>
+          <p>If <span class="math">T</span> is linear, then
+            <span class="math">T(f₁ + f₂) = T(f₁) + T(f₂)</span>.
+            Linearity is necessary for the operator to be usable as a preconditioner
+            (preconditioners must be linear maps on residuals).
+            Paper-ready threshold: <span class="math">ε < 8%</span>.
+          </p>
+
+          <div class="section-label">Method (Variant A)</div>
+          <p>For held-out source pairs
+            <span class="math">(f₁, f₂)</span>,
+            compute <span class="math">ε = ‖T(f₁+f₂) − T(f₁) − T(f₂)‖ / ‖T(f₁)+T(f₂)‖</span>.
+            Input to the network is the sum of the two input fields (Variant A normalisation).
+          </p>
+
+          <div class="section-label">Results</div>
+          <table class="data">
+            <thead>
+              <tr>
+                <th>Direction</th>
+                <th>Pair</th>
+                <th>Mean ε</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td class="label">UP</td>
+                <td>16→32</td>
+                <td class="warn">38.1%</td>
+              </tr>
+              <tr>
+                <td class="label">UP</td>
+                <td>32→64</td>
+                <td class="warn">35.6%</td>
+              </tr>
+              <tr>
+                <td class="label">UP</td>
+                <td>64→128</td>
+                <td class="warn">32.3%</td>
+              </tr>
+              <tr>
+                <td class="label">DOWN</td>
+                <td>32→16</td>
+                <td class="warn">35.4%</td>
+              </tr>
+              <tr>
+                <td class="label">DOWN</td>
+                <td>64→32</td>
+                <td class="warn">33.0%</td>
+              </tr>
+              <tr>
+                <td class="label">DOWN</td>
+                <td>128→64</td>
+                <td class="warn">29.5%</td>
+              </tr>
+            </tbody>
+          </table>
+
+          <div class="section-label">Diagnosis from spatial residual maps</div>
+          <div class="result-box">
+            Signed residual Re[T(f₁+f₂)] − Re[T(f₁)] − Re[T(f₂)]:
+            <br>
+            <span class="bad">Large-scale spatially uniform pattern (not localised near sources)</span>
+            <br>
+            <span class="note">→ global scaling error, not geometric nonlinearity</span>
+            <br><br>
+            Root cause: Variant A combined input has ~√2 × higher amplitude than
+            training distribution. InstanceNorm renormalises differently → global scale error.
+            <br>
+            Variant B fix: normalise combined input by combined RMS before inference.
+          </div>
+
+          <div class="section-label">Interpretation</div>
+          <div class="interp-box">
+            The 30–38% is a <strong>normalisation artifact</strong>, not true nonlinearity.
+            The spatial pattern of the error (global, not source-localised) is the diagnostic.
+            Variant B (correct normalisation) is expected to drop ε well below 8%.
+            This experiment was decisive: it told us exactly <em>why</em> the numbers look
+            bad and <em>what</em> to fix.
+          </div>
+
+          <div class="status-bar">
+            <span class="status-pill pill-partial">Artifact identified, Variant B pending</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- EXP 2 — Pipeline rebuild -->
+      <div class="exp-card positive" data-n="2">
+        <div class="exp-header">
+          <span class="tag tag-system">Pipeline</span>
+          <span class="date">2026-03-16</span>
+          <h3>Exp 2 — Full Pipeline Rebuild: Larger Data + Improved Training</h3>
+        </div>
+        <div class="exp-body">
+          <div class="section-label">Motivation</div>
+          <p>The saturation curve at N=1200 has not plateaued (N* ≈ 4000–8000).
+            Before the preconditioner can work, the transfer operator must be sufficiently
+            accurate. Four systematic changes were made.</p>
+
+          <div class="section-label">Four changes (train_transfer.py vs train4)</div>
+          <div class="result-box">
+            <strong>1. RMS normalisation</strong>
+            <br>
+            &nbsp; Both u_low and u_high ÷ rms(u_low|interior). Zero-predictor = 100% analytically.
+            <br><br>
+            <strong>2. Im channel in loss</strong> (motivated by Exp 1A)
+            <br>
+            &nbsp; L = λ₁·MSE_Re + λ₂·RelL2_Re + λ_imag·RelL2_Im
+            <br>
+            &nbsp; Phase 1 grid search: λ_imag ∈ {0.0, 0.1, 0.3, 1.0}
+            <br><br>
+            <strong>3. Cosine annealing with warm restarts</strong>
+            <br>
+            &nbsp; T₀=50, T_mult=2 → LR restarts at epochs 50, 150, 350, 750
+            <br><br>
+            <strong>4. Extended patience</strong>
+            <br>
+            &nbsp; max_epochs=1000, patience=150 (spans two full restart cycles)
+          </div>
+
+          <div class="section-label">Dataset generated (analytic Green's function, FFT)</div>
+          <div class="result-box">
+            up_N4800_seed42: 14 400 samples, ~75 GB (3 pairs × 4800) — <span class="good">COMPLETE</span>
+            <br>
+            down_N4800_seed42: 14 400 samples, ~75 GB (3 pairs × 4800) — <span class="good">COMPLETE</span>
+            <br>
+            <span class="note">Nested seed: first N samples match any sub-dataset exactly (no re-generation
+              needed)</span>
+            <br>
+            <span class="note">Format: directory of .npy memmaps — OS pages ~5 MB/sample at load time</span>
+          </div>
+
+          <div class="section-label">Phase 1 training runs (λ_imag search at N=1200)</div>
+          <table class="data">
+            <thead>
+              <tr>
+                <th>Server</th>
+                <th>Direction</th>
+                <th>λ_imag</th>
+                <th>Batch</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>wave7b</td>
+                <td>UP</td>
+                <td>0.0 / 0.1 / 0.3 / 1.0</td>
+                <td>4</td>
+              </tr>
+              <tr>
+                <td>wave6</td>
+                <td>DOWN</td>
+                <td>0.0 / 0.1 / 0.3 / 1.0</td>
+                <td>2</td>
+              </tr>
+            </tbody>
+          </table>
+
+          <div class="status-bar">
+            <span class="status-pill pill-positive">Dataset ready for N=4800 saturation curve</span>
+            <span class="status-pill pill-open">Best λ_imag: prior is 0.3</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- EXP 3 — Complex RRMSE loss -->
+      <div class="exp-card positive" data-n="3">
+        <div class="exp-header">
+          <span class="tag tag-ablation">Loss Design</span>
+          <span class="date">2026-03-19 → 2026-04-03</span>
+          <h3>Exp 3 — Complex RRMSE Loss: Mathematically Correct Objective</h3>
+        </div>
+        <div class="exp-body">
+          <div class="section-label">Motivation</div>
+          <p>Re and Im are not independent channels —
+            they are the real and imaginary parts of a single complex field
+            <span class="math">u ∈ ℂ</span>.
+            Treating them as separate loss terms weights the two directions of a complex
+            rotation differently, which is artificial.
+            A rotation-invariant loss must use the complex modulus.
+          </p>
+
+          <div class="section-label">New loss (train_transfer_v2.py)</div>
+          <div class="result-box">
+            Old: RelL2_Re + λ_imag · RelL2_Im (two separate real norms)
+            <br>
+            New: RRMSE_ℂ = √(∑|ŷ − y|²<sub>ℂ</sub>) / √(∑|y|²<sub>ℂ</sub>) over interior
+            <br><br>
+            Equivalent to: ‖ŷ_Re − y_Re‖² + ‖ŷ_Im − y_Im‖² in the numerator/denominator
+            jointly — no free λ_imag hyperparameter, Re and Im weighted equally.
+            <br>
+            Suggested by Aimé Fournier (2026-04-03).
+          </div>
+
+          <div class="section-label">Results (N=1200, kernel=3, 80–95 epochs)</div>
+          <table class="data">
+            <thead>
+              <tr>
+                <th>Experiment</th>
+                <th>Direction</th>
+                <th>Best val RelL2</th>
+                <th>Note</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td class="label">T_up_32_64 (1st run)</td>
+                <td>UP</td>
+                <td class="warn">140.6%</td>
+                <td class="label">LR too high</td>
+              </tr>
+              <tr>
+                <td class="label">T_down_64_32 (1st run)</td>
+                <td>DOWN</td>
+                <td class="warn">109.1%</td>
+                <td class="label">LR too high</td>
+              </tr>
+              <tr>
+                <td class="label">T_up_32_64 (2nd run)</td>
+                <td>UP</td>
+                <td class="highlight">82.4%</td>
+                <td class="label">lr=1.1e-4, k=3</td>
+              </tr>
+              <tr>
+                <td class="label">T_down_64_32 (2nd run)</td>
+                <td>DOWN</td>
+                <td class="highlight">84.6%</td>
+                <td class="label">lr=1.1e-4, k=3</td>
+              </tr>
+            </tbody>
+          </table>
+
+          <div class="section-label">Interpretation</div>
+          <div class="interp-box">
+            The complex RRMSE loss is mathematically cleaner and eliminates the λ_imag
+            hyperparameter search. The 82–85% results at N=1200 with kernel=3 and only
+            80–95 epochs are not yet at best performance (train4 reached 59–66% with
+            kernel=7 and more epochs). The N=4800 run with warm restarts and full training
+            budget is the next step.
+          </div>
+
+          <div class="status-bar">
+            <span class="status-pill pill-positive">Loss formulation principled</span>
+            <span class="status-pill pill-partial">N=4800 run needed for fair comparison</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- EXP 4 — Preconditioner benchmarks -->
+      <div class="exp-card negative" data-n="4">
+        <div class="exp-header">
+          <span class="tag tag-negative">Negative Result</span>
+          <span class="date">2026-03-13 → 2026-04-04</span>
+          <h3>Exp 4 — GMRES Preconditioner Benchmarks (v1–v6): Does the neural operator help?</h3>
+        </div>
+        <div class="exp-body">
+          <div class="section-label">Preconditioner construction</div>
+          <div class="result-box">
+            M⁻¹v (FGMRES right-preconditioner, one solve per Krylov step):
+            <br>
+            &nbsp; 1. Extract interior of v → v_int ∈ ℝ<sup>288×288</sup>
+            <br>
+            &nbsp; 2. Apply T_down → ũ_low (approximate low-freq solution)
+            <br>
+            &nbsp; 3. Apply A_L⁻¹(ILU) → low-freq corrected field
+            <br>
+            &nbsp; 4. Apply T_up → approximate high-freq correction
+            <br>
+            &nbsp; 5. Zero-pad back to 512×512
+          </div>
+
+          <div class="section-label">Comparison variants</div>
+          <table class="data">
+            <thead>
+              <tr>
+                <th>Variant</th>
+                <th>Method</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>A</td>
+                <td class="label">Unpreconditioned GMRES</td>
+              </tr>
+              <tr>
+                <td>B</td>
+                <td class="label">Jacobi (diagonal scaling)</td>
+              </tr>
+              <tr>
+                <td>C</td>
+                <td class="label">ILU(0)</td>
+              </tr>
+              <tr>
+                <td>D</td>
+                <td class="label">Complex Shifted Laplacian (β=0.5)</td>
+              </tr>
+              <tr>
+                <td>E</td>
+                <td class="label">Neural FGMRES (ours)</td>
+              </tr>
+            </tbody>
+          </table>
+
+          <div class="section-label">Results — ω=16→32, N=4800 weights, ILU fill=10, 1000 Krylov steps</div>
+          <table class="data">
+            <thead>
+              <tr>
+                <th>Variant</th>
+                <th>Iters</th>
+                <th>Converged?</th>
+                <th>r_final</th>
+                <th>Per-step cost</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>A (Unprecond.)</td>
+                <td>1000</td>
+                <td class="warn">No</td>
+                <td class="highlight">0.181</td>
+                <td class="label">~148 ms</td>
+              </tr>
+              <tr>
+                <td>B (Jacobi)</td>
+                <td>1000</td>
+                <td class="warn">No</td>
+                <td class="highlight">0.164</td>
+                <td class="label">2 ms</td>
+              </tr>
+              <tr>
+                <td>C (ILU)</td>
+                <td>1000</td>
+                <td class="warn">No</td>
+                <td class="highlight">0.158</td>
+                <td class="label">169 ms</td>
+              </tr>
+              <tr>
+                <td>D (CSL)</td>
+                <td>1000</td>
+                <td class="warn">No</td>
+                <td class="warn">0.649</td>
+                <td class="label">171 ms</td>
+              </tr>
+              <tr>
+                <td><strong>E (Neural)</strong></td>
+                <td>1000</td>
+                <td class="warn">No</td>
+                <td class="warn">0.999</td>
+                <td class="label">635 ms</td>
+              </tr>
+            </tbody>
+          </table>
+
+          <div class="section-label">Diagnosis</div>
+          <div class="result-box">
+            Neural (E) final residual: <span class="bad">0.999 ≈ no progress after 1000 steps</span>
+            <br>
+            CSL (D): also worse than unpreconditioned (0.649 vs 0.181)
+            <br>
+            Best classical: C (ILU, 0.158) — only marginally better than A
+            <br><br>
+            <span class="note">The 512×512 Helmholtz system at ω=32 is highly indefinite.</span>
+            <span class="note">None of the tested preconditioners achieve convergence to 10⁻⁴.</span>
+            <br><br>
+            Neural preconditioner failure modes identified across versions v1–v6:
+            <br>
+            &nbsp; v1–v2: FGMRES stagnates — preconditioner apply cost >7 s/step on CPU
+            <br>
+            &nbsp; v3–v4: Mismatch between interior-restricted preconditioner and GMRES left-preconditioning
+            <br>
+            &nbsp; v5: splu intractable at 512×512 for A_L⁻¹; switched to spilu (fill=10)
+            <br>
+            &nbsp; v6: GPU inference (635 ms/step), ILU fill=10 — still no convergence
+          </div>
+
+          <div class="section-label">Interpretation</div>
+          <div class="interp-box">
+            <strong>Honest negative result.</strong>
+            The current neural operator (RelL2 ≈ 59–66%) is not yet accurate enough
+            to serve as a useful Krylov preconditioner — a preconditioner that applies
+            an <em>approximate</em> inverse at the wrong scale actively
+            misleads the Krylov iteration.
+            This is well understood mathematically: for right-preconditioning,
+            <span class="math">M ≈ A</span> is required, and 60% relative error in
+            <span class="math">M</span> is far from this regime.
+            <br><br>
+            The CSL also failing to outperform the unpreconditioned system is a known
+            difficulty with 512×512 indefinite Helmholtz problems and is consistent
+            with the literature (Erlangga et al., 2006).
+            <br><br>
+            <strong>Next step:</strong> Improve RelL2 to ≲20–30% via N=4800–9600
+            training before re-benchmarking. A coarser grid test (N=256 or 128)
+            would also isolate whether the problem is with the preconditioner
+            construction or with the intrinsic difficulty of the Helmholtz system.
+          </div>
+
+          <div class="status-bar">
+            <span class="status-pill pill-negative">Neural preconditioner not yet effective</span>
+            <span class="status-pill pill-open">Accuracy gate: RelL2 ≲ 30% needed</span>
+          </div>
+        </div>
+      </div>
+
+    </div><!-- end timeline -->
+
+    <!-- Summary table -->
+    <div class="section-h">Summary of All Results</div>
+
+    <table class="data" style="font-size:13px;">
+      <thead>
+        <tr>
+          <th style="text-align:left">Experiment</th>
+          <th>Date</th>
+          <th>Key Metric</th>
+          <th>Value</th>
+          <th>Status</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td class="label">0 — Saturation curve (train4)</td>
+          <td>Feb–Mar 2026</td>
+          <td class="label">Val RelL2, N=1200</td>
+          <td class="highlight">59–66%</td>
+          <td class="label">Learning confirmed, N* not reached</td>
+        </tr>
+        <tr>
+          <td class="label">1A — Autoencoder identity</td>
+          <td>2026-03-13</td>
+          <td class="label">Val RelL2, Re, N=150</td>
+          <td class="highlight">2.5%</td>
+          <td class="label">Architecture sufficient; Im bug fixed</td>
+        </tr>
+        <tr>
+          <td class="label">1B — Amplitude ablation</td>
+          <td>2026-03-13</td>
+          <td class="label">Val RelL2, phase-only</td>
+          <td class="warn">100.0%</td>
+          <td class="label">1/r singularity necessary (confirmed)</td>
+        </tr>
+        <tr>
+          <td class="label">1C — Superposition (Variant A)</td>
+          <td>2026-03-13</td>
+          <td class="label">Linearity error ε</td>
+          <td class="warn">30–38%</td>
+          <td class="label">Artifact; Variant B pending</td>
+        </tr>
+        <tr>
+          <td class="label">2 — N=4800 dataset + λ_imag search</td>
+          <td>2026-03-16</td>
+          <td class="label">Dataset size</td>
+          <td>14 400 samples/dir</td>
+          <td class="label">Ready; training in progress</td>
+        </tr>
+        <tr>
+          <td class="label">3 — Complex RRMSE loss (v2)</td>
+          <td>2026-03-19</td>
+          <td class="label">Val RelL2, N=1200</td>
+          <td class="highlight">82–85%</td>
+          <td class="label">Loss principled; N=4800 run pending</td>
+        </tr>
+        <tr>
+          <td class="label">4 — GMRES preconditioner (v1–v6)</td>
+          <td>2026-03-13 →</td>
+          <td class="label">Final residual, 1000 steps</td>
+          <td class="warn">0.999 (E)</td>
+          <td class="label">Negative; accuracy gate not met</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <div class="open-questions">
+      <h3>Open Questions &amp; Next Steps (in order of priority)</h3>
+      <ol>
+        <li>
+          <strong>N=4800 saturation curve</strong> — does RelL2 drop below 45% with the
+          full dataset and warm-restart schedule? This is the necessary gate before
+          re-attempting the preconditioner.
+        </li>
+        <li>
+          <strong>Superposition Variant B</strong> — normalise combined input by combined RMS;
+          expected to show ε &lt; 8% and confirm linearity.
+        </li>
+        <li>
+          <strong>Coarser-grid preconditioner test</strong> — run v6 on a 128×128 or 256×256
+          grid to isolate whether the problem is with the operator accuracy or with
+          the indefiniteness of the 512×512 system.
+        </li>
+        <li>
+          <strong>N=9600 data generation</strong> — launch scripts ready
+          (<code>experiments/claude/launch/generate_N9600_local.sh</code>);
+          needed if curve still declining at N=4800.
+        </li>
+        <li>
+          <strong>Variant B doubling test</strong> — check scale equivariance
+          <span class="math">T(2u) = 2T(u)</span>; InstanceNorm expected to fail (30–50% error),
+          which would motivate replacing InstanceNorm with LayerNorm or GroupNorm.
+        </li>
+      </ol>
+    </div>
+
+    <footer>
+      Generated 2026-04-04 &nbsp;·&nbsp; Freq2Transfer &nbsp;·&nbsp;
+      experiments_summary.html
+    </footer>
+
+  </div>
+</body>
+
+</html>

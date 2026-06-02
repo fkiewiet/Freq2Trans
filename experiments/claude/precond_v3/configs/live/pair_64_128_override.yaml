@@ -1,0 +1,7 @@
+# Live override for pair 64->128.
+# Edit this file while the Slurm job is still pending.
+#
+# Example:
+# training:
+#   lr: 1.0e-4
+#   early_stop_patience: 100

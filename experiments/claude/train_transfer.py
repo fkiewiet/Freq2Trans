@@ -60,20 +60,23 @@ flows into output channel 1 except through shared convolution weights.
 Including λ_imag ≥ 0.3 is recommended as the default — Phase 1 is a search
 over {0.0, 0.1, 0.3, 1.0} to find the best value.
 
-The loss is:
-    L = λ1·MSE_re + λ2·RelL2_re + λ3·residual + λ_imag·RelL2_im
-L_imag is ALWAYS logged at every epoch regardless of λ_imag, so you can
-see whether the imaginary channel is learning even when λ_imag=0.
+TWO LOSS MODES  (--loss_mode)
+------------------------------
+Real and imaginary channels always receive equal weight.
 
-FOUR KEY CHANGES vs train4
---------------------------
+  rll2      (default)  L = RelL2_re + RelL2_im
+  mse_rll2             L = MSE_re + MSE_im + RelL2_re + RelL2_im
+
+All four terms (MSE_re, MSE_im, RelL2_re, RelL2_im) are logged every epoch
+regardless of loss_mode.
+
+KEY CHANGES vs train4
+---------------------
 1. RMS normalisation (already in dataset, conditioning channels updated):
      omega_norm = (omega − 16) / (128 − 16)
      eta_norm   = (PML_SIGMA0[omega] − 42.5) / (180 − 42.5)
 
-2. Imaginary channel in loss:
-     L = λ1·MSE_re + λ2·RelL2_re + λ3·residual + λ_imag·RelL2_im
-     L_imag logged at every epoch regardless of λ_imag.
+2. Equal-weight real+imaginary loss — no λ_imag search needed.
 
 3. CosineAnnealingWarmRestarts scheduler:
      T_0=50, T_mult=2, eta_min=1e-6
@@ -86,29 +89,25 @@ FOUR KEY CHANGES vs train4
 
 USAGE
 -----
-  # Phase 1: λ_imag search (GPU 0–3 on wave7b, direction=up):
-  python train_transfer.py --direction up --n 1200 \\
-      --dataset datasets/up_N4800_seed42/ \\
-      --lambda_imag 0.0 --outdir results/up_N1200_limag00/ --device cuda:0
-  python train_transfer.py --direction up --n 1200 \\
-      --dataset datasets/up_N4800_seed42/ \\
-      --lambda_imag 0.1 --outdir results/up_N1200_limag01/ --device cuda:1
-  python train_transfer.py --direction up --n 1200 \\
-      --dataset datasets/up_N4800_seed42/ \\
-      --lambda_imag 0.3 --outdir results/up_N1200_limag03/ --device cuda:2
-  python train_transfer.py --direction up --n 1200 \\
-      --dataset datasets/up_N4800_seed42/ \\
-      --lambda_imag 1.0 --outdir results/up_N1200_limag10/ --device cuda:3
+  DS_UP=/scratch/fkiewiet/datasets_N9600/up_N9600_seed42
+  DS_DN=/scratch/fkiewiet/datasets_N9600/down_N9600_seed42
 
-  # Phase 2: saturation curve (best λ_imag from Phase 1):
-  python train_transfer.py --direction up --n 2400 \\
-      --dataset datasets/up_N4800_seed42/ \\
-      --lambda_imag 0.3 --outdir results/up_N2400_limag03/ --device cuda:1
+  # Step 1 — compare loss modes at N=2400 (4 GPUs in parallel):
+  python train_transfer.py --direction up   --n 2400 --loss_mode rll2     --dataset $DS_UP --outdir results/up_N2400_rll2/     --device cuda:0 &
+  python train_transfer.py --direction up   --n 2400 --loss_mode mse_rll2 --dataset $DS_UP --outdir results/up_N2400_mse_rll2/ --device cuda:1 &
+  python train_transfer.py --direction down --n 2400 --loss_mode rll2     --dataset $DS_DN --outdir results/dn_N2400_rll2/     --device cuda:2 &
+  python train_transfer.py --direction down --n 2400 --loss_mode mse_rll2 --dataset $DS_DN --outdir results/dn_N2400_mse_rll2/ --device cuda:3 &
+  wait
 
-  # Phase 4: final run, no early stop:
-  python train_transfer.py --direction up --n 4800 \\
-      --dataset datasets/up_N4800_seed42/ \\
-      --lambda_imag 0.3 --no_early_stop --outdir results/up_N4800_final/ --device cuda:0
+  # Step 2 — saturation curve with better mode (sweep N, one direction at a time):
+  for N in 1200 2400 4800 9600; do
+    python train_transfer.py --direction up --n $N --loss_mode rll2 \\
+        --dataset $DS_UP --outdir results/up_N${N}_rll2/ --device cuda:0
+  done
+
+  # Step 3 — final run, no early stop:
+  python train_transfer.py --direction up --n 9600 --loss_mode rll2 --no_early_stop \\
+      --dataset $DS_UP --outdir results/up_N9600_final/ --device cuda:0
 
 THRESHOLD CHECK (printed at end of every run):
   RelL2 re  <10% (strong <5%)
@@ -406,19 +405,22 @@ def _helmholtz_residual(pred, source_real, omega_target, mask):
 
 class CombinedLoss(nn.Module):
     """
-    L = λ1·MSE_re + λ2·RelL2_re + λ3·residual + λ_imag·RelL2_im
-    All terms computed over the interior (PML region excluded).
-    λ_imag·RelL2_im is always logged, even when λ_imag = 0.
+    Two modes (--loss_mode), both with equal weight on Re and Im channels:
+
+      rll2      L = RelL2_re + RelL2_im
+      mse_rll2  L = MSE_re + MSE_im + RelL2_re + RelL2_im
+
+    All four component terms are always logged regardless of mode.
     """
 
-    def __init__(self, lambda1=1.0, lambda2=1.0, lambda3=0.0,
-                 lambda_imag=0.0, warmup_epochs=20,
-                 device=torch.device("cpu")):
+    def __init__(self, loss_mode: str = "rll2", lambda3: float = 0.0,
+                 warmup_epochs: int = 20, device=torch.device("cpu")):
         super().__init__()
-        self.lambda1        = lambda1
-        self.lambda2        = lambda2
+        if loss_mode not in ("rll2", "mse_rll2"):
+            raise ValueError(f"Unknown loss_mode '{loss_mode}'. Use 'rll2' or 'mse_rll2'.")
+        self.loss_mode      = loss_mode
+        self.use_mse        = (loss_mode == "mse_rll2")
         self.lambda3_target = lambda3
-        self.lambda_imag    = lambda_imag
         self.warmup_epochs  = warmup_epochs
         self.current_epoch  = 0
         self.mask           = _interior_mask(device=device)
@@ -437,21 +439,22 @@ class CombinedLoss(nn.Module):
         mask = self.mask.to(pred.device)
         m2   = mask[0, 0]   # (512, 512) bool
 
-        l_mse = _mse(pred[:, 0], target[:, 0], m2)
-        l_re  = _rel_l2(pred[:, 0], target[:, 0], m2)
-        l_im  = _rel_l2(pred[:, 1], target[:, 1], m2)   # always computed
-        l_res = _helmholtz_residual(pred, source_real, omega_target, mask)
+        l_mse_re = _mse(pred[:, 0], target[:, 0], m2)
+        l_mse_im = _mse(pred[:, 1], target[:, 1], m2)
+        l_re     = _rel_l2(pred[:, 0], target[:, 0], m2)
+        l_im     = _rel_l2(pred[:, 1], target[:, 1], m2)
+        l_res    = _helmholtz_residual(pred, source_real, omega_target, mask)
 
-        total = (self.lambda1    * l_mse
-                 + self.lambda2  * l_re
-                 + self.lambda3  * l_res
-                 + self.lambda_imag * l_im)
+        total = l_re + l_im + self.lambda3 * l_res
+        if self.use_mse:
+            total = total + l_mse_re + l_mse_im
 
         return {
             "total":          total,
-            "mse_re":         l_mse.item(),
+            "mse_re":         l_mse_re.item(),
+            "mse_im":         l_mse_im.item(),
             "rel_l2_re":      l_re.item(),
-            "rel_l2_im":      l_im.item(),   # logged always [Change 2]
+            "rel_l2_im":      l_im.item(),
             "residual":       l_res.item(),
             "lambda3_active": self.lambda3,
         }
@@ -496,7 +499,7 @@ def _omega_target(omega_norms: torch.Tensor, direction: str) -> torch.Tensor:
 def _train_one_epoch(model, loader, optimiser, loss_fn, device, direction,
                      static, scaler=None):
     model.train()
-    totals    = {"mse_re": 0, "rel_l2_re": 0, "rel_l2_im": 0,
+    totals    = {"mse_re": 0, "mse_im": 0, "rel_l2_re": 0, "rel_l2_im": 0,
                  "residual": 0, "total": 0}
     n_batches = 0
     use_bf16  = device.type == "cuda"
@@ -741,10 +744,8 @@ def train(
     patience:     int     = 150,
     no_early_stop: bool   = False,
     batch_size:   int     = 4,
-    lambda1:      float   = 1.0,
-    lambda2:      float   = 1.0,
+    loss_mode:    str     = "rll2",
     lambda3:      float   = 0.0,
-    lambda_imag:  float   = 0.0,
     width:        int     = 128,
     depth:        int     = 8,
     kernel:       int     = 7,
@@ -799,8 +800,7 @@ def train(
 
     # ── loss + optimiser + scheduler ───────────────────────────────────────────
     loss_fn   = CombinedLoss(
-        lambda1=lambda1, lambda2=lambda2, lambda3=lambda3,
-        lambda_imag=lambda_imag, device=device,
+        loss_mode=loss_mode, lambda3=lambda3, device=device,
     )
     optimiser = optim.AdamW(model.parameters(), lr=lr, weight_decay=1e-4)
 
@@ -898,7 +898,7 @@ def train(
             "best_epoch":          best_epoch,
             "direction":           direction,
             "n_per_pair":          n,
-            "lambda_imag":         lambda_imag,
+            "loss_mode":           loss_mode,
             "arch":                arch_dict,
             "solver":              "greens_function_fft",
         }, ckpt_path)
@@ -937,10 +937,8 @@ def train(
         "direction":           direction,
         "n_per_pair":          n,
         "dataset":             str(dataset_path),
-        "lambda1":             lambda1,
-        "lambda2":             lambda2,
+        "loss_mode":           loss_mode,
         "lambda3":             lambda3,
-        "lambda_imag":         lambda_imag,
         "lr":                  lr,
         "max_epochs":          max_epochs,
         "patience":            patience,
@@ -1147,11 +1145,11 @@ def main():
     parser.add_argument("--no_early_stop", action="store_true",
                         help="Run all max_epochs regardless of early stopping.")
     parser.add_argument("--batch_size",  type=int,   default=8)
-    parser.add_argument("--lambda1",     type=float, default=1.0)
-    parser.add_argument("--lambda2",     type=float, default=1.0)
+    parser.add_argument("--loss_mode",   type=str,   default="rll2",
+                        choices=["rll2", "mse_rll2"],
+                        help="rll2 (default): RelL2_re + RelL2_im.  "
+                             "mse_rll2: MSE_re + MSE_im + RelL2_re + RelL2_im.")
     parser.add_argument("--lambda3",     type=float, default=0.0)
-    parser.add_argument("--lambda_imag", type=float, default=0.0,
-                        help="Weight for imaginary-channel RelL2 loss. Default: 0.0.")
 
     # Architecture (for Optuna Phase 3 search)
     parser.add_argument("--width",       type=int,   default=128)
@@ -1200,7 +1198,7 @@ def main():
     print(f"  lr           = {args.lr}")
     print(f"  max_epochs   = {args.max_epochs}  patience={args.patience}"
           + ("  [no early stop]" if args.no_early_stop else ""))
-    print(f"  lambda_imag  = {args.lambda_imag}")
+    print(f"  loss_mode    = {args.loss_mode}")
     print(f"  lambda3      = {args.lambda3}")
     print(f"  arch         = w={args.width} d={args.depth} k={args.kernel} "
           f"dil={args.dilation} act={args.activation}")
@@ -1218,10 +1216,8 @@ def main():
         patience      = args.patience,
         no_early_stop = args.no_early_stop,
         batch_size    = args.batch_size,
-        lambda1       = args.lambda1,
-        lambda2       = args.lambda2,
+        loss_mode     = args.loss_mode,
         lambda3       = args.lambda3,
-        lambda_imag   = args.lambda_imag,
         width         = args.width,
         depth         = args.depth,
         kernel        = args.kernel,

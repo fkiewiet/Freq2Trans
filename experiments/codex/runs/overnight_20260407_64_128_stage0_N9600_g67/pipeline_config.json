@@ -1,0 +1,30 @@
+{
+  "omegas": [
+    64,
+    128
+  ],
+  "gpu_map": {
+    "64": "6",
+    "128": "7"
+  },
+  "skip_generate": true,
+  "dataset_map": {
+    "64": "experiments/codex/runs/dataset_20260406_64_N9600/omega64_dataset",
+    "128": "experiments/codex/runs/dataset_20260406_128_N9600/omega128_dataset"
+  },
+  "n_problems": 20,
+  "gmres_iters": 4,
+  "save_stages": "0,1,2,4",
+  "epochs": 12,
+  "batch_size": 1,
+  "max_stage": 0,
+  "eval_steps": 6,
+  "eval_gate_step": 1,
+  "dampings": [
+    0.0001,
+    0.0003,
+    0.001,
+    0.003,
+    0.01
+  ]
+}

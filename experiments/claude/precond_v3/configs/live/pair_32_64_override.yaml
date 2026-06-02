@@ -1,0 +1,7 @@
+# Live override for pair 32->64.
+# Edit this file while the Slurm job is still pending.
+#
+# Example:
+# training:
+#   batch_size: 2
+#   lr: 2.0e-4

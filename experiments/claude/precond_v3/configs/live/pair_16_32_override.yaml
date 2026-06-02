@@ -1,0 +1,11 @@
+# Live override for pair 16->32.
+# Edit this file while the Slurm job is still pending.
+# The job will read it at startup, merge it with the base config,
+# and freeze the final result into the run directory.
+#
+# Example:
+# training:
+#   lr: 1.5e-4
+#   early_stop_patience: 80
+# model:
+#   base_ch: 48

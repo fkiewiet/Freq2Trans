@@ -1,0 +1,470 @@
+% ============================================================
+% Chapter 3 — Numerical Discretisation
+% Thesis: Frequency Helmholtz Transfer Operator
+% Author: F.E. Kiewiet de Jonge | TU Delft EEMCS
+% ============================================================
+%
+% Required packages (add to preamble if not already present):
+%   \usepackage{booktabs}
+%   \usepackage{amsmath, amssymb}
+%   \usepackage{todonotes}
+
+\chapter{Numerical discretisation}
+\label{chapter:discretisation}
+
+The central computational challenge of this thesis is that solving
+the Helmholtz equation at high frequency is expensive. The cost of
+an iterative solve scales with the iteration count, and that count
+grows with $\omega$ due to deteriorating spectral properties of the
+system matrix. This chapter builds the discrete system
+$\mathbf{A}(\omega)\mathbf{u} = \mathbf{f}$ and makes that
+difficulty precise: each design choice --- grid spacing, PML depth,
+damping strength --- is made to ensure that the algebraic hardness
+grows predictably with $\omega$, so that Chapter~\ref{chapter:classical_solvers}
+can attribute solver performance differences cleanly to frequency,
+not to artefacts of the discretisation.
+
+
+% ============================================================
+\section{Finite difference approximation}
+\label{sec:fd_discretisation}
+% ============================================================
+
+The domain $\Omega \subset \mathbb{R}^2$ is covered by a uniform
+Cartesian grid with mesh spacing $h$. A grid point indexed $(i,j)$
+carries the value $u_{i,j} \approx u(ih,jh)$. The Laplacian is
+approximated by the standard five-point stencil,
+\begin{equation}
+    \nabla^2 u\big|_{i,j}
+    \;\approx\;
+    \frac{u_{i+1,j} - 2u_{i,j} + u_{i-1,j}}{h^2}
+    \;+\;
+    \frac{u_{i,j+1} - 2u_{i,j} + u_{i,j-1}}{h^2},
+    \label{eq:fd_stencil}
+\end{equation}
+with local truncation error $\mathcal{O}(h^2)$, obtained by
+adding the Taylor expansions $u(x \pm h) = u \pm hu' + \tfrac{h^2}{2}u'' \pm
+\cdots$ and rearranging. The same stencil applies at every interior
+point; inside the absorbing boundary layer the weights are modified
+by complex coordinate stretching, as described in
+Section~\ref{sec:pml_discretisation}.
+
+\begin{figure}[h!]
+\centering
+    \includegraphics[width=0.7\textwidth]{figures/c - fivepoint.png}
+\caption{The five-point stencil with
+weights $(1/h^2, -2/h^2, 1/h^2)$ in each direction and
+$\mathcal{O}(h^2)$ truncation error.}
+\label{fig:fivepoint}
+\end{figure}
+
+
+% ============================================================
+\section{Discrete Helmholtz operator}
+\label{sec:discrete_operator}
+% ============================================================
+
+The $N = n^2$ grid points are ordered lexicographically into a
+vector $\mathbf{u} \in \mathbb{C}^N$. Applying
+\eqref{eq:fd_stencil} at every interior point and appending
+boundary conditions yields
+\begin{equation}
+    \mathbf{A}(\omega)\,\mathbf{u} = \mathbf{f},
+    \label{eq:linear_system}
+\end{equation}
+where $\mathbf{f} \in \mathbb{C}^N$ is the discretised source.
+In the homogeneous medium $c \equiv 1$ used throughout, the
+wavenumber is spatially constant and the diagonal term of each
+row is
+\begin{equation}
+    -\frac{4}{h^2} + k^2,
+    \qquad k = \omega,
+\end{equation}
+plus complex-valued PML modifications near the boundary.
+Each row has at most five non-zero entries, so the total
+non-zero count scales as $\mathcal{O}(N)$. For $n = 512$ the
+system has $N = 262{,}144$ unknowns.
+
+\todo{Confirm single-solve wall-clock time from cluster
+benchmarks; expected $\approx 3$\,s with UMFPACK on CPU.}
+
+
+% ============================================================
+\section{Matrix structure and spectral properties}
+\label{sec:matrix_structure}
+% ============================================================
+
+Three spectral properties of $\mathbf{A}(\omega)$ determine how
+hard iterative methods find this system --- and all three worsen
+with frequency.
+
+\paragraph{Indefiniteness.}
+The diagonal term $k^2 - 4/h^2$ is negative for coarse grids and
+becomes less negative (eventually positive) as $h \to 0$ at fixed
+$\omega$. Across the four frequencies in this work the spectrum
+straddles the imaginary axis: eigenvalues appear on both sides,
+making $\mathbf{A}$ neither positive nor negative definite. This
+invalidates the convergence guarantees of classical stationary
+methods, which require diagonal dominance or definiteness
+\cite{SaadBook2003}.
+
+\paragraph{Spectral growth with frequency.}
+As $\omega$ increases the diagonal shift $k^2 = \omega^2$ grows,
+pulling eigenvalues further from the origin. The spectral radius
+expands and the condition number $\kappa(\mathbf{A})$ deteriorates.
+\todo{Add $\kappa(\mathbf{A})$ vs.\ $\omega$ from solver benchmarks.}
+Krylov methods can still converge, but they require a large
+subspace or a preconditioner that clusters eigenvalues near unity.
+Constructing such a preconditioner for high-$\omega$ Helmholtz is
+precisely the open problem that motivates this work: rather than
+building a classical algebraic preconditioner, we ask whether a
+neural operator trained on low-frequency solutions can serve as a
+transferable one.
+
+\paragraph{Non-normality.}
+The PML introduces complex off-diagonal entries that break
+self-adjointness. For non-normal matrices the spectrum alone
+does not determine convergence: the pseudospectrum
+--- the region of $\mathbb{C}$ where $(z\mathbf{I} - \mathbf{A})^{-1}$
+is large in norm --- can extend far beyond the eigenvalues
+\cite{Trefethen2005}. This makes spectral analysis insufficient
+and motivates empirical convergence studies in
+Chapter~\ref{chapter:classical_solvers}.
+
+\begin{figure}[htbp]
+    \centering
+    \includegraphics[width=0.9\textwidth]{figures/c - eigenvalue scatter.png}
+    \caption{Eigenvalue distribution of $\mathbf{A}(\omega)$ for
+    $\omega \in \{16, 32, 64, 128\}$. The shaded region ($\operatorname{Re}(\lambda) < 0$)
+    marks indefiniteness. As frequency increases, the spectrum shifts
+    and spreads, violating the requirements for classical stationary
+    iterative methods.}
+    \label{fig:eigenvalues}
+\end{figure}
+
+
+% ============================================================
+\section{Resolution requirements}
+\label{sec:resolution_requirements}
+% ============================================================
+
+A finite difference solution is physically meaningful only if the
+grid resolves the wavelength $\lambda = 2\pi c/\omega$. The
+standard criterion requires at least $G$ points per wavelength
+(PPW):
+\begin{equation}
+    h \;\leq\; \frac{2\pi c}{\omega G} = \frac{\lambda}{G}.
+    \label{eq:ppw}
+\end{equation}
+For second-order stencils the accepted minimum is $G = 10$
+\cite{Ihlenburg1998}; in practice a larger $G$ is advisable at
+higher frequencies to limit the pollution error discussed in
+Section~\ref{sec:dispersion_pollution}.
+
+Throughout this work $n = 512$ is fixed. With $h = 1/(n-1)
+\approx 1.96 \times 10^{-3}$, the four frequencies all exceed
+the minimum criterion by a large margin
+(Table~\ref{tab:resolution}). Fixing $n$ rather than $h$
+deliberately isolates the effect of increasing $\omega$ on solver
+behaviour: the system size stays constant while the spectral
+difficulty grows. This is the experimental design choice that
+makes the iteration-count comparisons in
+Chapter~\ref{chapter:classical_solvers} interpretable.
+
+\begin{table}[h]
+\centering
+\begin{tabular}{lllll}
+\toprule
+$\omega$ & $\lambda = 2\pi/\omega$ & $h$ &
+PPW $= \lambda/h$ & Status \\
+\midrule
+16  & $0.393$ & $1.96 \times 10^{-3}$ & $\approx 200$ & Over-resolved \\
+32  & $0.196$ & $1.96 \times 10^{-3}$ & $\approx 100$ & Well-resolved \\
+64  & $0.098$ & $1.96 \times 10^{-3}$ & $\approx 50$  & Resolved \\
+128 & $0.049$ & $1.96 \times 10^{-3}$ & $\approx 25$  & Marginally resolved \\
+\bottomrule
+\end{tabular}
+\caption{Points per wavelength for the $n = 512$ grid with
+$c = 1$. All four frequencies exceed the $G = 10$ minimum
+criterion. The PPW decreases by a factor of eight from $\omega = 16$
+to $\omega = 128$, driving the pollution error growth discussed
+in Section~\ref{sec:dispersion_pollution}.}
+\label{tab:resolution}
+\end{table}
+
+The PML occupies the outer $n_{\mathrm{pml}} = 112$ grid points
+on each side. After masking, the usable interior domain is
+$288 \times 288$ grid points. All loss functions and convergence
+metrics in this work are evaluated on the interior only: the
+attenuated PML solution carries no physical information and
+polluting the metric with it would artificially lower the
+reported error.
+
+
+% ============================================================
+\section{Dispersion and pollution errors}
+\label{sec:dispersion_pollution}
+% ============================================================
+
+Satisfying \eqref{eq:ppw} controls the \emph{local} truncation
+error but does not prevent global phase error from accumulating
+over large domains. Two related phenomena matter.
+
+\paragraph{Numerical dispersion.}
+Substituting a plane wave $u_{i,j} = e^{i(p_x ih + p_y jh)}$
+into \eqref{eq:fd_stencil} gives a modified dispersion relation
+with discrete phase velocity $c_h \neq c$; the deviation is
+$c_h - c = \mathcal{O}(h^2)$ at each point.
+
+\paragraph{Pollution effect.}
+Local accuracy does not imply global accuracy at high frequency.
+Ihlenburg and Babu\v{s}ka \cite{Ihlenburg1995,Ihlenburg1998}
+showed that the relative $H^1$ error satisfies
+\begin{equation}
+    \frac{\|u - u_h\|_{H^1}}{\|u\|_{H^1}}
+    \;\leq\;
+    C_1\,(kh)^2 \;+\; C_2\,k^3 h^2,
+    \label{eq:pollution_bound}
+\end{equation}
+where $k = \omega/c$. The first term is the standard
+interpolation error, controlled by keeping $kh$ small. The
+second term is the \emph{pollution term}: for fixed PPW (i.e.\
+$kh$ constant) it grows linearly with $k$. The mechanism is a
+frequency-dependent deterioration of the inf-sup constant of
+$\mathbf{A}$; the full argument is in \cite{Ihlenburg1998}.
+
+Since $n = 512$ is fixed, the PPW decreases from approximately
+200 at $\omega = 16$ to 25 at $\omega = 128$
+(Table~\ref{tab:resolution}), so the pollution term $C_2 k^3 h^2$
+grows with $\omega$. This is intentional: it ensures that
+higher-frequency problems are genuinely harder to solve --- the
+discrete system is not just larger, it is algebraically more
+ill-conditioned --- which is precisely the scenario motivating
+frequency transfer as a warm-start strategy.
+
+\todo[inline]{Insert Fig.~3.4: log-log plot of relative
+$H^1$ error versus $\omega$ at fixed $n = 512$, showing the
+super-linear growth predicted by \eqref{eq:pollution_bound}.}
+
+
+% ============================================================
+\section{Absorbing boundary conditions}
+\label{sec:pml_discretisation}
+% ============================================================
+
+The Helmholtz equation is posed on an unbounded domain. Hard
+Dirichlet or Neumann conditions at the grid boundary produce
+spurious reflections that corrupt the interior solution. Instead,
+a Perfectly Matched Layer (PML) surrounds the domain: a boundary
+strip in which outgoing waves are exponentially absorbed without
+any reflection at the interior--layer interface
+\cite{Berenger1994,ChewWeedon1994}.
+
+\paragraph{Coordinate stretching.}
+Inside the PML strip, the real coordinate $x$ is complexified via
+the stretching function
+\begin{equation}
+    s(x) = 1 + i\,\sigma(x),
+    \label{eq:stretching}
+\end{equation}
+where $\sigma(x) \geq 0$ vanishes in the interior and increases
+into the strip. The physical effect is clean: a plane wave
+$e^{ikx}$ travelling into the layer accumulates an imaginary
+phase $\int\sigma\,\mathrm{d}x$, which means exponential decay
+in amplitude without any reflection, because the medium is
+matched to the interior. In the discrete operator, each
+off-diagonal stencil weight at a PML grid point is divided
+by $s(x_j)$:
+\begin{equation}
+    \frac{u_{i,j+1} - 2u_{i,j} + u_{i,j-1}}{h^2}
+    \;\longrightarrow\;
+    \frac{1}{s(x_j)\,h^2}
+    \bigl(u_{i,j+1} - 2u_{i,j} + u_{i,j-1}\bigr).
+\end{equation}
+The sparsity pattern of $\mathbf{A}$ is unchanged; the entries
+become complex-valued inside the PML region.
+
+\paragraph{Damping profile.}
+The damping grows quadratically from zero at the interior--PML
+interface to the peak $\sigma_0$ at the outer wall,
+\begin{equation}
+    \sigma(x)
+    = \sigma_0\!\left(\frac{d(x)}{n_{\mathrm{pml}}}\right)^{\!2},
+    \label{eq:pml_profile}
+\end{equation}
+where $d(x)$ is the distance from the interior boundary in grid
+points. With a Dirichlet wall at the outer edge, a plane wave
+makes a round trip through the full layer, giving a reflection
+coefficient
+\begin{equation}
+    R \;\approx\; e^{-\,2\sigma_0\,n_{\mathrm{pml}}\,h/3},
+    \label{eq:R_formula}
+\end{equation}
+where the factor $1/3$ comes from integrating the quadratic
+profile. Targeting $R = 10^{-3}$ sets the required product
+$\sigma_0\,n_{\mathrm{pml}}\,h \geq \tfrac{3}{2}\ln(10^3) \approx 10.4$.
+
+\paragraph{Choosing the layer thickness.}
+The most natural design for a PML that must handle four
+different frequencies would adapt \emph{both} the thickness
+$n_{\mathrm{pml}}$ and the peak damping $\sigma_0$ to each
+$\omega$. Shorter wavelengths need a physically larger absorbing
+region to contain the same number of wavelengths; a systematic
+search over a leakage criterion --- the ratio of wave amplitude
+at the physical boundary to amplitude in the interior --- with
+GMRES convergence as a secondary constraint found
+frequency-optimal thicknesses of approximately
+$\{104,\;84,\;68,\;56\}$ cells for $\omega \in \{16,32,64,128\}$.
+
+This frequency-adaptive thickness was not adopted. The reason
+goes to the heart of the learning problem. Varying
+$n_{\mathrm{pml}}$ changes the total grid footprint and, with
+it, the size of the physical interior domain. Each frequency
+would then present the neural network with a different spatial
+layout: the $288 \times 288$ interior at $\omega = 16$ would
+become something else at $\omega = 128$. A transfer operator
+trained on pairs $(u_{\omega_{\mathrm{low}}},\,u_{\omega_{\mathrm{high}}})$
+from differently-sized grids would need to reason about
+grid geometry as well as wave physics, conflating boundary
+artefacts with genuine frequency dependence. The model would
+risk memorising frequency-specific grid structure rather than
+learning the transferable part of the solution map --- a
+textbook path to overfitting.
+
+Fixing
+\begin{equation}
+    n_{\mathrm{pml}} = 112 \quad (\text{all frequencies})
+    \label{eq:fixed_npml}
+\end{equation}
+eliminates this confound. Every frequency has the same
+$288 \times 288$ physical interior, the same sparsity pattern,
+and the same input layout for the network. This choice also
+makes the system size identical across frequencies, so that
+iteration-count comparisons in
+Chapter~\ref{chapter:classical_solvers} isolate the effect of
+$\omega$ on solver convergence.
+
+\paragraph{Frequency-adaptive peak damping.}
+With $n_{\mathrm{pml}} = 112$ fixed, $\sigma_0$ is the only
+remaining tuning knob. Two forces act in opposite directions.
+
+\begin{itemize}
+    \item \textit{Absorption.} Higher $\omega$ means more
+    oscillations fit inside the fixed layer, so $\sigma_0$
+    must increase with $\omega$ to maintain the target $R$.
+    From \eqref{eq:R_formula}, keeping $R$ constant at fixed
+    $n_{\mathrm{pml}}\,h$ requires $\sigma_0 \propto \omega$.
+
+    \item \textit{Matrix conditioning.} A large $\sigma_0$
+    inflates the imaginary part of the diagonal entries of
+    $\mathbf{A}$, dragging the spectrum away from the real
+    axis. This extends the pseudospectrum and increases GMRES
+    iteration counts. In the extreme it can make the system
+    harder to solve than without any PML at all.
+\end{itemize}
+
+The values
+\begin{equation}
+    \sigma_0 \;\in\; \{42.5,\;85.0,\;120.0,\;180.0\}
+    \quad\text{for}\quad
+    \omega \;\in\; \{16,\;32,\;64,\;128\}
+    \label{eq:sigma0_values}
+\end{equation}
+were determined empirically by solving a grid of $(n_{\mathrm{pml}},
+\sigma_0)$ configurations and measuring both the leakage metric
+and GMRES convergence (Table~\ref{tab:system_params}). The
+values grow with $\omega$ --- roughly doubling across the first
+octave, then more slowly --- reflecting a deliberate sub-linear
+trend that limits imaginary diagonal growth. No clean power law
+fits all four points; the values represent a direct numerical
+trade-off rather than a closed-form prediction, and are held
+fixed across all experiments.
+
+\begin{table}[h]
+\centering
+\begin{tabular}{lllll}
+\toprule
+$\omega$ & $\sigma_0$ & $n_{\mathrm{pml}}$ & Interior size & Target $R$ \\
+\midrule
+16  & $42.5$  & $112$ & $288^2$ & $10^{-3}$ \\
+32  & $85.0$  & $112$ & $288^2$ & $10^{-3}$ \\
+64  & $120.0$ & $112$ & $288^2$ & $10^{-3}$ \\
+128 & $180.0$ & $112$ & $288^2$ & $10^{-3}$ \\
+\bottomrule
+\end{tabular}
+\caption{PML parameters for the $n = 512$ grid. Fixing
+$n_{\mathrm{pml}} = 112$ keeps the interior size identical
+across all frequencies; only $\sigma_0$ is adapted. The sub-linear
+growth of $\sigma_0$ with $\omega$ balances absorption quality
+against matrix conditioning.}
+\label{tab:system_params}
+\end{table}
+
+\begin{figure}[htbp]
+    \centering
+    \subfloat[1D cross-sections of $\sigma(x)$ for $\omega \in \{16, 32, 64, 128\}$.]{
+        \includegraphics[width=0.8\textwidth]{figures/c - pml 1d.png}
+        \label{fig:pml_1d}
+    }
+    \hfill
+    \subfloat[2D spatial distribution of the quadratic damping on the $512^2$ grid.]{
+        \includegraphics[width=0.8\textwidth]{figures/c - pml 2d.png}
+        \label{fig:pml_2d}
+    }
+    \vspace{1em}
+    \caption{PML configuration. (a) Quadratic ramp of $\sigma$ from
+    zero at the interior interface (grid indices 112 and 400) to $\sigma_0$
+    at the outer wall. Higher frequencies carry a larger $\sigma_0$ to
+    maintain the target $R = 10^{-3}$. (b) The frame-like PML surrounding
+    the $288 \times 288$ physical interior --- identical in footprint for
+    all four frequencies.}
+    \label{fig:pml_combined}
+\end{figure}
+
+\todo[inline]{Remake Fig.~\ref{fig:pml_combined} with a colour scale
+and Arial font consistent with the rest of the thesis.}
+
+
+% ============================================================
+\section{Summary of the discrete system}
+\label{sec:linear_system}
+% ============================================================
+
+At each frequency $\omega$ the construction above yields a sparse
+complex linear system $\mathbf{A}(\omega)\mathbf{u} = \mathbf{f}$
+with the following properties:
+
+\begin{itemize}
+    \item $N = 262{,}144$ unknowns, $\mathcal{O}(N)$ non-zeros.
+    \item Indefinite, non-Hermitian spectrum whose condition number
+          grows with $\omega$.
+    \item Fixed PML geometry ($n_{\mathrm{pml}} = 112$) with
+          frequency-adapted $\sigma_0$ \eqref{eq:sigma0_values}
+          that keeps boundary reflections below $10^{-3}$
+          without over-stiffening the matrix.
+    \item A $288 \times 288$ physical interior identical across
+          all frequencies; the PML region is excluded from all
+          error metrics and training losses.
+\end{itemize}
+
+The system is deliberately designed so that increasing $\omega$
+increases algebraic difficulty without changing system size or
+spatial layout. This makes the question concrete: \emph{can a
+neural operator trained at low frequency provide a useful warm
+start for the iterative solver at high frequency, reducing the
+iteration count?} Chapter~\ref{chapter:classical_solvers}
+benchmarks state-of-the-art classical solvers on this system
+and shows that the answer to that question cannot come from
+classical preconditioners alone.
+
+\begin{figure}[htbp]
+    \centering
+    \includegraphics[width=0.85\textwidth]{figures/c - condition.png}
+    \caption{Condition number $\kappa(\mathbf{A}(\omega))$ versus
+    $\omega$ for constant $\sigma_0$ (dashed) and adaptive $\sigma_0$
+    \eqref{eq:sigma0_values} (solid). Adaptive damping homogenises the
+    algebraic difficulty across frequencies, so that differences in
+    solver performance reflect physical frequency dependence rather
+    than PML artefacts.}
+    \label{fig:condition_homogenisation}
+\end{figure}

@@ -1,1148 +1,1945 @@
 <!DOCTYPE html>
 <html lang="en">
-
 <head>
   <meta charset="UTF-8">
-  <title>Freq2Transfer — Experiment Summary</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Freq2Transfer - Experiment Summary</title>
   <style>
     :root {
-      --blue: #1a4a7a;
-      --blue-light: #2d6ea8;
-      --green: #1e6b3c;
-      --red: #8b1a1a;
-      --amber: #7a5200;
-      --gray: #444;
-      --bg: #f8f9fa;
-      --card-bg: #ffffff;
-      --border: #d0d7de;
-      --code-bg: #f0f4f8;
+      --ink: #14213d;
+      --muted: #546277;
+      --bg: #f4f7fb;
+      --card: #ffffff;
+      --line: #d9e1ec;
+      --blue: #2457c5;
+      --blue-soft: #eaf1ff;
+      --teal: #117c74;
+      --teal-soft: #e7f8f5;
+      --gold: #9b6b00;
+      --gold-soft: #fff5d9;
+      --red: #b13a3a;
+      --red-soft: #fdecec;
+      --shadow: 0 14px 40px rgba(20, 33, 61, 0.08);
+      --radius: 18px;
+      --mono: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+      --sans: "Segoe UI", "Avenir Next", "Helvetica Neue", Arial, sans-serif;
+      --serif: Georgia, "Times New Roman", serif;
     }
 
     * {
       box-sizing: border-box;
-      margin: 0;
-      padding: 0;
+    }
+
+    html {
+      scroll-behavior: smooth;
     }
 
     body {
-      font-family: Georgia, 'Times New Roman', serif;
-      font-size: 15px;
+      margin: 0;
+      background:
+        radial-gradient(circle at top right, rgba(36, 87, 197, 0.08), transparent 28%),
+        radial-gradient(circle at top left, rgba(17, 124, 116, 0.08), transparent 24%),
+        var(--bg);
+      color: var(--ink);
+      font-family: var(--serif);
       line-height: 1.65;
-      color: #222;
-      background: var(--bg);
-      padding: 0 0 60px 0;
     }
 
-    header {
-      background: var(--blue);
-      color: white;
-      padding: 36px 60px 28px;
-    }
-
-    header h1 {
-      font-size: 24px;
-      font-weight: bold;
-      letter-spacing: 0.5px;
-    }
-
-    header .subtitle {
-      font-size: 13.5px;
-      color: #b8d0e8;
-      margin-top: 6px;
-    }
-
-    header .meta {
-      font-size: 12.5px;
-      color: #90b8d8;
-      margin-top: 10px;
-      font-style: italic;
-    }
-
-    .container {
-      max-width: 960px;
-      margin: 0 auto;
-      padding: 0 30px;
-    }
-
-    .goal-box {
-      background: #e8f0fb;
-      border-left: 5px solid var(--blue-light);
-      padding: 18px 22px;
-      margin: 32px 0 12px;
-      border-radius: 0 6px 6px 0;
-    }
-
-    .goal-box h2 {
-      font-size: 14px;
+    a {
       color: var(--blue);
-      text-transform: uppercase;
-      letter-spacing: 1px;
-      margin-bottom: 8px;
-    }
-
-    .goal-box p {
-      font-size: 14px;
-    }
-
-    .math {
-      font-family: 'Cambria Math', Georgia, serif;
-      font-style: italic;
     }
 
     code {
-      font-family: 'Courier New', monospace;
-      font-size: 13px;
-      background: var(--code-bg);
-      padding: 1px 5px;
-      border-radius: 3px;
-      border: 1px solid #d0d7de;
-    }
-
-    .timeline {
-      position: relative;
-      margin: 40px 0;
-    }
-
-    .timeline::before {
-      content: '';
-      position: absolute;
-      left: 28px;
-      top: 0;
-      bottom: 0;
-      width: 2px;
-      background: #c5d3e0;
-    }
-
-    .exp-card {
-      position: relative;
-      margin-left: 64px;
-      margin-bottom: 36px;
-      background: var(--card-bg);
-      border: 1px solid var(--border);
-      border-radius: 8px;
-      overflow: hidden;
-      box-shadow: 0 1px 4px rgba(0, 0, 0, 0.06);
-    }
-
-    .exp-card::before {
-      content: attr(data-n);
-      position: absolute;
-      left: -50px;
-      top: 18px;
-      width: 36px;
-      height: 36px;
-      background: var(--blue);
-      color: white;
-      border-radius: 50%;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      font-size: 13px;
-      font-weight: bold;
-      font-family: sans-serif;
-      line-height: 36px;
-      text-align: center;
-    }
-
-    .exp-card.negative::before {
-      background: var(--red);
-    }
-
-    .exp-card.partial::before {
-      background: var(--amber);
-    }
-
-    .exp-card.positive::before {
-      background: var(--green);
-    }
-
-    .exp-header {
-      padding: 14px 20px 12px;
-      border-bottom: 1px solid var(--border);
-      background: #fafbfc;
-    }
-
-    .exp-header .tag {
-      font-family: sans-serif;
-      font-size: 10.5px;
-      font-weight: 600;
-      text-transform: uppercase;
-      letter-spacing: 1px;
-      padding: 2px 8px;
-      border-radius: 3px;
-      display: inline-block;
-      margin-right: 8px;
-    }
-
-    .tag-probe {
-      background: #dbeafe;
-      color: #1e40af;
-    }
-
-    .tag-ablation {
-      background: #fef3c7;
-      color: #92400e;
-    }
-
-    .tag-system {
-      background: #f3e8ff;
-      color: #6b21a8;
-    }
-
-    .tag-arch {
-      background: #dcfce7;
-      color: #15803d;
-    }
-
-    .tag-negative {
-      background: #fee2e2;
-      color: #991b1b;
-    }
-
-    .exp-header .date {
-      font-family: sans-serif;
-      font-size: 11.5px;
-      color: #666;
-      float: right;
-      margin-top: 2px;
-    }
-
-    .exp-header h3 {
-      font-size: 16px;
-      font-weight: bold;
-      margin-top: 6px;
-      color: #111;
-    }
-
-    .exp-body {
-      padding: 16px 20px;
-    }
-
-    .section-label {
-      font-family: sans-serif;
-      font-size: 10.5px;
-      font-weight: 700;
-      text-transform: uppercase;
-      letter-spacing: 1px;
-      color: #666;
-      margin-bottom: 4px;
-      margin-top: 14px;
-    }
-
-    .section-label:first-child {
-      margin-top: 0;
-    }
-
-    .result-box {
-      background: var(--code-bg);
-      border: 1px solid #c5d3e0;
-      border-radius: 5px;
-      padding: 11px 14px;
-      font-family: 'Courier New', monospace;
-      font-size: 12.5px;
-      line-height: 1.7;
-      margin-top: 4px;
-    }
-
-    .result-box .good {
-      color: var(--green);
-      font-weight: bold;
-    }
-
-    .result-box .bad {
-      color: var(--red);
-      font-weight: bold;
-    }
-
-    .result-box .note {
-      color: #666;
-      font-style: italic;
-    }
-
-    .interp-box {
-      background: #fffbeb;
-      border-left: 3px solid #d97706;
-      padding: 10px 14px;
-      font-size: 13.5px;
-      border-radius: 0 4px 4px 0;
-      margin-top: 6px;
-    }
-
-    .status-bar {
-      display: flex;
-      align-items: center;
-      gap: 10px;
-      margin-top: 14px;
-      padding-top: 12px;
-      border-top: 1px solid #e5e7eb;
-      font-family: sans-serif;
-      font-size: 12px;
-    }
-
-    .status-pill {
-      padding: 3px 10px;
-      border-radius: 12px;
-      font-weight: 600;
-    }
-
-    .pill-positive {
-      background: #dcfce7;
-      color: #15803d;
-    }
-
-    .pill-negative {
-      background: #fee2e2;
-      color: #991b1b;
-    }
-
-    .pill-partial {
-      background: #fef3c7;
-      color: #92400e;
-    }
-
-    .pill-open {
-      background: #e0e7ff;
-      color: #3730a3;
-    }
-
-    table.data {
-      width: 100%;
-      border-collapse: collapse;
-      font-family: 'Courier New', monospace;
-      font-size: 12.5px;
-      margin-top: 6px;
-    }
-
-    table.data th {
-      background: #f0f4f8;
-      border: 1px solid #c5d3e0;
-      padding: 5px 10px;
-      text-align: center;
-      font-weight: 600;
-      font-size: 11.5px;
-      font-family: sans-serif;
-      text-transform: uppercase;
-      letter-spacing: 0.5px;
-    }
-
-    table.data td {
-      border: 1px solid #d8dee4;
-      padding: 4px 10px;
-      text-align: center;
-    }
-
-    table.data tr:nth-child(even) {
-      background: #fafbfc;
-    }
-
-    table.data td.highlight {
-      color: var(--green);
-      font-weight: bold;
-    }
-
-    table.data td.warn {
-      color: var(--red);
-      font-weight: bold;
-    }
-
-    table.data td.label {
-      text-align: left;
-      font-family: sans-serif;
-      font-size: 12px;
-    }
-
-    .section-h {
-      font-family: sans-serif;
-      font-size: 13px;
-      font-weight: 700;
-      text-transform: uppercase;
-      letter-spacing: 1px;
-      color: var(--blue);
-      margin: 44px 0 18px;
-      padding-bottom: 8px;
-      border-bottom: 2px solid #c5d3e0;
-    }
-
-    .architecture-box {
-      background: var(--code-bg);
-      border: 1px solid #c5d3e0;
-      border-radius: 5px;
-      padding: 14px 18px;
-      font-size: 13px;
-      line-height: 1.8;
-    }
-
-    .open-questions {
-      background: #f0f0ff;
-      border: 1px solid #c7c7f0;
+      font-family: var(--mono);
+      font-size: 0.92em;
+      background: #eef3fa;
+      padding: 0.1rem 0.35rem;
       border-radius: 6px;
-      padding: 16px 20px;
-      margin-top: 32px;
-      font-size: 13.5px;
     }
 
-    .open-questions h3 {
-      font-family: sans-serif;
-      font-size: 12px;
-      font-weight: 700;
+    .page {
+      width: min(1180px, calc(100% - 32px));
+      margin: 0 auto;
+      padding-bottom: 72px;
+    }
+
+    .hero {
+      margin-top: 22px;
+      padding: 34px;
+      border-radius: 28px;
+      background:
+        linear-gradient(145deg, rgba(20, 33, 61, 0.96), rgba(36, 87, 197, 0.9)),
+        var(--ink);
+      color: #fff;
+      box-shadow: var(--shadow);
+      position: relative;
+      overflow: hidden;
+    }
+
+    .hero::after {
+      content: "";
+      position: absolute;
+      inset: auto -80px -80px auto;
+      width: 260px;
+      height: 260px;
+      border-radius: 50%;
+      background: radial-gradient(circle, rgba(255, 255, 255, 0.22), rgba(255, 255, 255, 0));
+    }
+
+    .hero h1 {
+      margin: 0;
+      font-family: var(--sans);
+      font-size: clamp(2rem, 4vw, 3rem);
+      line-height: 1.1;
+      letter-spacing: -0.03em;
+    }
+
+    .hero .subtitle {
+      margin-top: 10px;
+      color: rgba(255, 255, 255, 0.85);
+      font-family: var(--sans);
+      font-size: 1.04rem;
+      max-width: 880px;
+    }
+
+    .hero .meta {
+      margin-top: 18px;
+      color: rgba(255, 255, 255, 0.7);
+      font-family: var(--sans);
+      font-size: 0.95rem;
+    }
+
+    .hero-grid {
+      display: grid;
+      grid-template-columns: 1.3fr 0.9fr;
+      gap: 18px;
+      margin-top: 28px;
+      align-items: stretch;
+    }
+
+    .hero-card {
+      background: rgba(255, 255, 255, 0.12);
+      border: 1px solid rgba(255, 255, 255, 0.16);
+      border-radius: 20px;
+      padding: 18px 18px 16px;
+      backdrop-filter: blur(10px);
+    }
+
+    .hero-card h2 {
+      margin: 0 0 8px;
+      font-family: var(--sans);
+      font-size: 0.9rem;
       text-transform: uppercase;
-      letter-spacing: 1px;
-      color: #3730a3;
-      margin-bottom: 10px;
+      letter-spacing: 0.12em;
+      color: rgba(255, 255, 255, 0.72);
     }
 
-    .open-questions ol {
+    .hero-card p {
+      margin: 0;
+      font-size: 1rem;
+    }
+
+    .metric-list {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 12px;
+      margin-top: 6px;
+    }
+
+    .metric {
+      background: rgba(255, 255, 255, 0.08);
+      border-radius: 16px;
+      padding: 14px;
+    }
+
+    .metric .value {
+      display: block;
+      font-family: var(--sans);
+      font-size: 1.55rem;
+      font-weight: 700;
+      line-height: 1.1;
+    }
+
+    .metric .label {
+      display: block;
+      margin-top: 6px;
+      color: rgba(255, 255, 255, 0.75);
+      font-family: var(--sans);
+      font-size: 0.88rem;
+    }
+
+    .topnav {
+      position: sticky;
+      top: 0;
+      z-index: 10;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      margin: 18px 0 22px;
+      padding: 14px;
+      background: rgba(244, 247, 251, 0.88);
+      backdrop-filter: blur(10px);
+      border: 1px solid rgba(217, 225, 236, 0.9);
+      border-radius: 18px;
+      box-shadow: 0 8px 24px rgba(20, 33, 61, 0.06);
+    }
+
+    .topnav a {
+      text-decoration: none;
+      font-family: var(--sans);
+      font-size: 0.93rem;
+      padding: 8px 12px;
+      border-radius: 999px;
+      color: var(--ink);
+      background: #fff;
+      border: 1px solid var(--line);
+    }
+
+    section {
+      margin-top: 26px;
+    }
+
+    .section-card {
+      background: var(--card);
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      padding: 26px;
+      box-shadow: var(--shadow);
+    }
+
+    .section-title {
+      margin: 0 0 6px;
+      font-family: var(--sans);
+      font-size: 1.55rem;
+      line-height: 1.15;
+      letter-spacing: -0.02em;
+    }
+
+    .section-intro {
+      margin: 0 0 18px;
+      color: var(--muted);
+      font-family: var(--sans);
+      max-width: 900px;
+    }
+
+    .grid-2 {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 18px;
+    }
+
+    .grid-3 {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 18px;
+    }
+
+    .mini-card {
+      padding: 18px;
+      background: linear-gradient(180deg, #ffffff, #f9fbff);
+      border: 1px solid var(--line);
+      border-radius: 16px;
+    }
+
+    .mini-card h3 {
+      margin: 0 0 8px;
+      font-family: var(--sans);
+      font-size: 1rem;
+    }
+
+    .mini-card p,
+    .mini-card ul {
+      margin: 0;
+      color: var(--muted);
+      font-size: 0.98rem;
+    }
+
+    .mini-card ul {
       padding-left: 18px;
     }
 
-    .open-questions li {
-      margin-bottom: 6px;
+    .key-facts {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 14px;
+      margin-top: 18px;
+    }
+
+    .fact {
+      border-radius: 16px;
+      padding: 16px;
+      border: 1px solid var(--line);
+      background: #fbfdff;
+    }
+
+    .fact .k {
+      display: block;
+      font-family: var(--sans);
+      font-size: 0.8rem;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      color: var(--muted);
+    }
+
+    .fact .v {
+      display: block;
+      margin-top: 8px;
+      font-family: var(--sans);
+      font-size: 1.08rem;
+      font-weight: 700;
+      line-height: 1.35;
+    }
+
+    .chip-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      margin-top: 16px;
+    }
+
+    .chip {
+      padding: 7px 11px;
+      border-radius: 999px;
+      font-family: var(--sans);
+      font-size: 0.86rem;
+      border: 1px solid transparent;
+    }
+
+    .chip.blue {
+      background: var(--blue-soft);
+      color: var(--blue);
+      border-color: #cfe0ff;
+    }
+
+    .chip.teal {
+      background: var(--teal-soft);
+      color: var(--teal);
+      border-color: #c4eee8;
+    }
+
+    .chip.gold {
+      background: var(--gold-soft);
+      color: var(--gold);
+      border-color: #f5df98;
+    }
+
+    .chip.red {
+      background: var(--red-soft);
+      color: var(--red);
+      border-color: #f0bcbc;
+    }
+
+    .explainer-grid {
+      display: grid;
+      grid-template-columns: 250px minmax(0, 1fr) 320px;
+      gap: 18px;
+      align-items: start;
+    }
+
+    .tabs {
+      display: grid;
+      gap: 10px;
+    }
+
+    .tab-btn {
+      width: 100%;
+      text-align: left;
+      padding: 14px 16px;
+      border-radius: 16px;
+      border: 1px solid var(--line);
+      background: #fff;
+      color: var(--ink);
+      font-family: var(--sans);
+      cursor: pointer;
+      transition: transform 0.18s ease, border-color 0.18s ease, box-shadow 0.18s ease;
+    }
+
+    .tab-btn:hover,
+    .step-btn:hover,
+    .diagram-node:hover {
+      transform: translateY(-1px);
+    }
+
+    .tab-btn.active {
+      border-color: #b8cbff;
+      box-shadow: 0 8px 24px rgba(36, 87, 197, 0.12);
+      background: linear-gradient(180deg, #ffffff, #eef4ff);
+    }
+
+    .tab-btn strong {
+      display: block;
+      font-size: 1rem;
+      margin-bottom: 4px;
+    }
+
+    .tab-btn span {
+      display: block;
+      color: var(--muted);
+      font-size: 0.9rem;
+      line-height: 1.45;
+    }
+
+    .diagram-shell {
+      border: 1px solid var(--line);
+      border-radius: 20px;
+      background: linear-gradient(180deg, #ffffff, #f8fbff);
+      padding: 18px;
+      min-height: 520px;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .diagram-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      gap: 12px;
+      margin-bottom: 14px;
+    }
+
+    .diagram-header h3 {
+      margin: 0;
+      font-family: var(--sans);
+      font-size: 1.18rem;
+    }
+
+    .diagram-header p {
+      margin: 4px 0 0;
+      color: var(--muted);
+      font-family: var(--sans);
+      font-size: 0.92rem;
+    }
+
+    .legend {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      justify-content: flex-end;
+    }
+
+    .legend span {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      font-family: var(--sans);
+      font-size: 0.8rem;
+      color: var(--muted);
+    }
+
+    .legend i {
+      width: 12px;
+      height: 12px;
+      border-radius: 3px;
+      display: inline-block;
+    }
+
+    .diagram {
+      display: none;
+    }
+
+    .diagram.active {
+      display: block;
+    }
+
+    .diagram-node {
+      position: relative;
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      background: #fff;
+      padding: 12px;
+      text-align: center;
+      font-family: var(--sans);
+      cursor: pointer;
+      box-shadow: 0 10px 24px rgba(20, 33, 61, 0.05);
+      transition: border-color 0.18s ease, box-shadow 0.18s ease, transform 0.18s ease;
+    }
+
+    .diagram-node strong {
+      display: block;
+      font-size: 0.95rem;
+      line-height: 1.25;
+    }
+
+    .diagram-node small {
+      display: block;
+      margin-top: 5px;
+      color: var(--muted);
+      font-size: 0.8rem;
+      line-height: 1.35;
+    }
+
+    .diagram-node.active {
+      border-color: var(--blue);
+      box-shadow: 0 12px 26px rgba(36, 87, 197, 0.18);
+    }
+
+    .node-input {
+      background: #f7fbff;
+    }
+
+    .node-blue {
+      background: #eef4ff;
+    }
+
+    .node-teal {
+      background: #ebfbf8;
+    }
+
+    .node-gold {
+      background: #fff8e7;
+    }
+
+    .node-red {
+      background: #fff0f0;
+    }
+
+    .flow-row {
+      display: grid;
+      gap: 12px;
+      align-items: center;
+    }
+
+    .flow-5 {
+      grid-template-columns: 1.15fr 0.9fr 1.2fr 0.9fr 1fr;
+    }
+
+    .flow-arrow {
+      text-align: center;
+      font-family: var(--sans);
+      color: var(--muted);
+      font-size: 1.3rem;
+      font-weight: 700;
+    }
+
+    .cnn-blocks {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 12px;
+      margin-top: 14px;
+    }
+
+    .unet-layout {
+      display: grid;
+      grid-template-columns: repeat(5, minmax(0, 1fr));
+      gap: 10px;
+      align-items: start;
+      margin-top: 8px;
+    }
+
+    .unet-col {
+      display: grid;
+      gap: 12px;
+    }
+
+    .skip-note {
+      text-align: center;
+      font-family: var(--sans);
+      color: var(--muted);
+      font-size: 0.8rem;
+      margin: 8px 0 2px;
+    }
+
+    .detail-panel {
+      border: 1px solid var(--line);
+      border-radius: 20px;
+      background: #fcfdff;
+      padding: 18px;
+      min-height: 520px;
+    }
+
+    .detail-panel h3 {
+      margin: 0;
+      font-family: var(--sans);
+      font-size: 1.12rem;
+    }
+
+    .detail-panel .eyebrow {
+      margin-bottom: 10px;
+      font-family: var(--sans);
+      font-size: 0.8rem;
+      text-transform: uppercase;
+      letter-spacing: 0.12em;
+      color: var(--muted);
+    }
+
+    .detail-panel p {
+      margin: 10px 0 0;
+      color: #334155;
+      font-size: 0.98rem;
+    }
+
+    .detail-panel ul {
+      margin: 12px 0 0;
+      padding-left: 18px;
+      color: #334155;
+    }
+
+    .gmres-layout {
+      display: grid;
+      grid-template-columns: 260px minmax(0, 1fr);
+      gap: 18px;
+      align-items: start;
+    }
+
+    .step-list {
+      display: grid;
+      gap: 10px;
+    }
+
+    .step-btn {
+      width: 100%;
+      padding: 14px 16px;
+      border-radius: 16px;
+      border: 1px solid var(--line);
+      background: #fff;
+      text-align: left;
+      cursor: pointer;
+      font-family: var(--sans);
+      transition: transform 0.18s ease, border-color 0.18s ease, box-shadow 0.18s ease;
+    }
+
+    .step-btn.active {
+      border-color: #b8cbff;
+      box-shadow: 0 8px 24px rgba(36, 87, 197, 0.12);
+      background: linear-gradient(180deg, #ffffff, #eef4ff);
+    }
+
+    .step-num {
+      display: inline-flex;
+      width: 28px;
+      height: 28px;
+      align-items: center;
+      justify-content: center;
+      border-radius: 50%;
+      margin-right: 10px;
+      background: var(--blue-soft);
+      color: var(--blue);
+      font-weight: 700;
+      font-size: 0.9rem;
+    }
+
+    .step-visual {
+      border: 1px solid var(--line);
+      border-radius: 20px;
+      background: linear-gradient(180deg, #ffffff, #f8fbff);
+      padding: 18px;
+    }
+
+    .step-visual h3 {
+      margin: 0;
+      font-family: var(--sans);
+      font-size: 1.15rem;
+    }
+
+    .step-visual p {
+      margin: 6px 0 0;
+      color: var(--muted);
+      font-family: var(--sans);
+    }
+
+    .pipeline {
+      display: grid;
+      grid-template-columns: repeat(6, minmax(0, 1fr));
+      gap: 10px;
+      margin-top: 18px;
+      align-items: center;
+    }
+
+    .pipeline .diagram-node {
+      min-height: 112px;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+    }
+
+    .step-copy {
+      margin-top: 18px;
+      padding: 16px;
+      border-radius: 16px;
+      background: #fff;
+      border: 1px solid var(--line);
+    }
+
+    .step-copy h4 {
+      margin: 0;
+      font-family: var(--sans);
+      font-size: 1rem;
+    }
+
+    .step-copy p,
+    .step-copy ul {
+      margin: 10px 0 0;
+      color: #334155;
+    }
+
+    .step-copy ul {
+      padding-left: 18px;
+    }
+
+    .timeline {
+      display: grid;
+      gap: 16px;
+      margin-top: 18px;
+    }
+
+    .event {
+      border: 1px solid var(--line);
+      border-radius: 18px;
+      overflow: hidden;
+      background: #fff;
+    }
+
+    .event-head {
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+      align-items: baseline;
+      padding: 16px 18px 12px;
+      border-bottom: 1px solid var(--line);
+      background: #fafcff;
+    }
+
+    .event-head h3 {
+      margin: 0;
+      font-family: var(--sans);
+      font-size: 1.05rem;
+    }
+
+    .event-date {
+      color: var(--muted);
+      font-family: var(--sans);
+      font-size: 0.86rem;
+      white-space: nowrap;
+    }
+
+    .event-body {
+      padding: 16px 18px 18px;
+    }
+
+    .event-body p {
+      margin: 0 0 10px;
+    }
+
+    .takeaway {
+      margin-top: 12px;
+      padding: 12px 14px;
+      border-radius: 14px;
+      font-family: var(--sans);
+      font-size: 0.94rem;
+      border: 1px solid transparent;
+    }
+
+    .takeaway.good {
+      background: var(--teal-soft);
+      color: #0f5f59;
+      border-color: #c4eee8;
+    }
+
+    .takeaway.warn {
+      background: var(--gold-soft);
+      color: #7d5600;
+      border-color: #f0dd95;
+    }
+
+    .takeaway.bad {
+      background: var(--red-soft);
+      color: #8d2d2d;
+      border-color: #f1c2c2;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-top: 16px;
+      font-family: var(--sans);
+      font-size: 0.93rem;
+    }
+
+    th,
+    td {
+      border: 1px solid var(--line);
+      padding: 10px 12px;
+      text-align: left;
+      vertical-align: top;
+    }
+
+    th {
+      background: #f3f7fd;
+      font-size: 0.82rem;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: var(--muted);
+    }
+
+    tr:nth-child(even) td {
+      background: #fbfdff;
+    }
+
+    .status {
+      display: inline-block;
+      padding: 4px 10px;
+      border-radius: 999px;
+      font-family: var(--sans);
+      font-size: 0.82rem;
+      font-weight: 700;
+    }
+
+    .status.good {
+      background: var(--teal-soft);
+      color: var(--teal);
+    }
+
+    .status.warn {
+      background: var(--gold-soft);
+      color: var(--gold);
+    }
+
+    .status.bad {
+      background: var(--red-soft);
+      color: var(--red);
+    }
+
+    .status.open {
+      background: var(--blue-soft);
+      color: var(--blue);
+    }
+
+    .callout {
+      margin-top: 18px;
+      padding: 18px;
+      border-radius: 18px;
+      background: linear-gradient(180deg, #fcfdff, #f7fbff);
+      border: 1px solid var(--line);
+    }
+
+    .callout h3 {
+      margin: 0 0 8px;
+      font-family: var(--sans);
+      font-size: 1.03rem;
+    }
+
+    .callout p,
+    .callout ol {
+      margin: 0;
+      color: #334155;
+    }
+
+    .callout ol {
+      padding-left: 18px;
+      margin-top: 10px;
     }
 
     footer {
-      font-family: sans-serif;
-      font-size: 11.5px;
-      color: #888;
+      margin-top: 28px;
+      padding: 18px 6px 0;
       text-align: center;
-      margin-top: 48px;
-      padding-top: 16px;
-      border-top: 1px solid #d8dee4;
+      color: var(--muted);
+      font-family: var(--sans);
+      font-size: 0.9rem;
+    }
+
+    @media (max-width: 1050px) {
+      .hero-grid,
+      .explainer-grid,
+      .gmres-layout,
+      .grid-3,
+      .grid-2,
+      .key-facts {
+        grid-template-columns: 1fr;
+      }
+
+      .legend {
+        justify-content: flex-start;
+      }
+
+      .pipeline {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+    }
+
+    @media (max-width: 820px) {
+      .page {
+        width: min(100%, calc(100% - 20px));
+      }
+
+      .hero,
+      .section-card {
+        padding: 20px;
+      }
+
+      .metric-list,
+      .cnn-blocks,
+      .unet-layout,
+      .flow-5,
+      .pipeline {
+        grid-template-columns: 1fr;
+      }
+
+      .flow-arrow {
+        transform: rotate(90deg);
+      }
+
+      .event-head {
+        flex-direction: column;
+        align-items: flex-start;
+      }
     }
   </style>
 </head>
-
 <body>
-
-  <header>
-    <h1>Freq2Transfer — Experiment Summary</h1>
-    <div class="subtitle">Frequency-Transfer Neural Operator for Helmholtz Preconditioning</div>
-    <div class="meta">F. Kiewiet &nbsp;·&nbsp; MIT, Prof. L. Demanet &nbsp;·&nbsp; as of 2026-04-04</div>
-  </header>
-
-  <div class="container">
-
-    <div class="goal-box">
-      <h2>Research Goal</h2>
-      <p>
-        Train a CNN <span class="math">T<sub>ω<sub>L</sub>→ω<sub>H</sub></sub> : u<sub>low</sub> ↦
-          u<sub>high</sub></span>
-        that maps Helmholtz solutions from a coarser frequency
-        <span class="math">ω<sub>L</sub></span> to a finer frequency <span class="math">ω<sub>H</sub></span>
-        on the same source configuration.
-        The trained operator is then used as the action of an FGMRES right-preconditioner
-        <span class="math">M<sup>−1</sup></span> for the high-frequency system
-        <span class="math">A<sub>H</sub>x = b</span>,
-        with the intent of reducing iteration counts relative to standard algebraic preconditioners
-        (ILU, CSL).
-        <br><br>
-        The three operator pairs are
-        <code>16→32</code>, <code>32→64</code>, <code>64→128</code>
-        on a 512×512 finite-difference grid with PML absorbing boundaries (depth 112 cells).
-      </p>
-    </div>
-
-    <div class="section-h">System &amp; Architecture</div>
-
-    <div class="architecture-box">
-      <strong>Helmholtz system:</strong>
-      &nbsp;<span class="math">(Δ + (ω/c + iσ)<sup>2</sup>)u = f</span>,&nbsp;
-      solved by sparse LU (<code>scipy.sparse.linalg.spsolve</code>) for data generation.<br>
-      <strong>Data (analytic):</strong>&nbsp;
-      2D free-space Green's function
-      <span class="math">G(r) = (i/4)H<sub>0</sub><sup>(1)</sup>(ωr)</span>
-      via FFT convolution on a 2× zero-padded grid.
-      3–6 Gaussian sources per sample, amplitude ∈ [1, 2], phase ∈ [0, 2π].<br>
-      <strong>Input channels (29):</strong>&nbsp;
-      Re(<span class="math">u<sub>low</sub></span>), Im(<span class="math">u<sub>low</sub></span>),
-      PML map, 24 Fourier positional features (6 bands × sin/cos × X, Y),
-      ω/128, direction bit.<br>
-      <strong>Model:</strong>&nbsp;
-      Dilated CNN — stem (1×1) + 8 dilated conv blocks (3×3 or 7×7, dilations 1–8 linear),
-      InstanceNorm, ReLU, width 128, ~14 M parameters.<br>
-      <strong>Normalisation:</strong>&nbsp;
-      Both <span class="math">u<sub>low</sub></span> and <span class="math">u<sub>high</sub></span>
-      divided by <span class="math">rms(u<sub>low</sub>|<sub>interior</sub>)</span>.
-      Zero-predictor RelL2 = 100% analytically, verified on every run.
-    </div>
-
-    <div class="section-h">Experiment Timeline</div>
-
-    <div class="timeline">
-
-      <!-- EXP 0 -->
-      <div class="exp-card positive" data-n="0">
-        <div class="exp-header">
-          <span class="tag tag-probe">Saturation Probe</span>
-          <span class="date">early March 2026</span>
-          <h3>Exp 0 — Saturation Curve (train4): Can the model learn at all?</h3>
-        </div>
-        <div class="exp-body">
-          <div class="section-label">Motivation</div>
-          <p>Establish whether a dilated CNN can reduce RelL2 below the trivial baseline
-            and identify the critical training-set size <span class="math">N*</span>
-            beyond which accuracy saturates.</p>
-
-          <div class="section-label">Method</div>
-          <p>Train on Green's function data for all three operator pairs simultaneously.
-            Vary <span class="math">N ∈ {150, 300, 600, 1200}</span> samples per pair.
-            Loss: <span class="math">λ₁·MSE<sub>Re</sub> + λ₂·RelL2<sub>Re</sub></span>
-            (imaginary channel not included — this becomes Exp 1A).</p>
-
-          <div class="section-label">Results</div>
-          <table class="data">
-            <thead>
-              <tr>
-                <th>N / pair</th>
-                <th>DOWN val RelL2</th>
-                <th>UP val RelL2</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr>
-                <td>150</td>
-                <td>69.7%</td>
-                <td>79.2%</td>
-              </tr>
-              <tr>
-                <td>300</td>
-                <td>65.6%</td>
-                <td>71.5%</td>
-              </tr>
-              <tr>
-                <td>600</td>
-                <td>61.9%</td>
-                <td>65.5%</td>
-              </tr>
-              <tr>
-                <td>1200</td>
-                <td class="highlight">59.0%</td>
-                <td class="highlight">65.5%</td>
-              </tr>
-            </tbody>
-          </table>
-          <div class="result-box" style="margin-top:8px">
-            Trivial zero baseline: <span class="good">100.0%</span> (verified analytically)
-            <br>
-            Power-law fit: N* ≈ 4000–8000 (curve still declining at N=1200)
-          </div>
-
-          <div class="section-label">Interpretation</div>
-          <div class="interp-box">
-            The model is learning — 59–66% is well below baseline.
-            But the saturation plateau has not been reached, meaning either more data
-            or architectural improvements are needed before the preconditioner can be
-            competitive. This established the experimental agenda for all subsequent runs.
-          </div>
-
-          <div class="status-bar">
-            <span class="status-pill pill-positive">Result: learning confirmed</span>
-            <span class="status-pill pill-partial">N* not yet reached</span>
-          </div>
-        </div>
+  <div class="page">
+    <header class="hero">
+      <h1>Freq2Transfer</h1>
+      <div class="subtitle">
+        Frequency-transfer neural operators for Helmholtz preconditioning.
+        This page is organized to answer three questions quickly:
+        what the models take in and produce, what the CNN and U-Net are doing internally,
+        and why flexible GMRES is the right outer solver for the neural preconditioner experiments.
       </div>
+      <div class="meta">F. Kiewiet · MIT, Prof. L. Demanet · summary state as of 2026-04-04</div>
 
-      <!-- EXP 1A -->
-      <div class="exp-card positive" data-n="1A">
-        <div class="exp-header">
-          <span class="tag tag-arch">Architecture Probe</span>
-          <span class="date">2026-03-13</span>
-          <h3>Exp 1A — Autoencoder Identity Task: Is the architecture the bottleneck?</h3>
-        </div>
-        <div class="exp-body">
-          <div class="section-label">Motivation</div>
-          <p>Disentangle <em>architecture capacity</em> from <em>task difficulty</em>.
-            If <span class="math">ω<sub>source</sub> = ω<sub>target</sub></span> (identity map),
-            what is the minimum achievable RelL2?</p>
-
-          <div class="section-label">Method</div>
-          <p>Set target = input (same ω in and out). Train on all three ω ∈ {32, 64, 128}
-            with <span class="math">N = 150</span>. Re and Im channels logged separately.</p>
-
-          <div class="section-label">Results (N=150, epoch 145)</div>
-          <div class="result-box">
-            Real channel: <span class="good">2.5% RelL2</span> — converging strongly, all three ω identical<br>
-            Imaginary channel: <span class="bad">53% RelL2</span> — frozen from epoch 1<br>
-            <span class="note">Root cause: λ_imag = 0 in loss — Im channel receives no gradient</span>
-          </div>
-
-          <div class="section-label">Interpretation</div>
-          <div class="interp-box">
-            <strong>The architecture is not the bottleneck.</strong>
-            2.5% on the identity task vs. 59–66% on the actual transfer confirms
-            that the frequency mapping is the hard part, not the representation.
-            The imaginary bug immediately motivated adding <code>λ_imag·RelL2_Im</code>
-            to all subsequent loss functions.
-          </div>
-
-          <div class="status-bar">
-            <span class="status-pill pill-positive">Architecture sufficient</span>
-            <span class="status-pill pill-negative">Im-channel bug identified</span>
-          </div>
-        </div>
-      </div>
-
-      <!-- EXP 1B -->
-      <div class="exp-card positive" data-n="1B">
-        <div class="exp-header">
-          <span class="tag tag-ablation">Ablation</span>
-          <span class="date">2026-03-13</span>
-          <h3>Exp 1B — Amplitude Ablation: Is the 1/√r singularity necessary?</h3>
-        </div>
-        <div class="exp-body">
-          <div class="section-label">Motivation</div>
-          <p>Prof. Demanet's hypothesis: the model implicitly decomposes multi-source fields
-            into Voronoi cells, with each source identified by its
-            <span class="math">1/r</span> amplitude peak.
-            Test: remove the singularity and check if learning collapses.
+      <div class="hero-grid">
+        <div class="hero-card">
+          <h2>Research Goal</h2>
+          <p>
+            Learn a transfer map <code>T_{omega_L -> omega_H}</code> that sends a low-frequency Helmholtz field
+            to the corresponding high-frequency field for the same source pattern, then use that map inside a
+            right-preconditioned Krylov solve for <code>A_H x = b</code>.
           </p>
+        </div>
+        <div class="hero-card">
+          <h2>Current Snapshot</h2>
+          <div class="metric-list">
+            <div class="metric">
+              <span class="value">59-66%</span>
+              <span class="label">Best validation RelL2 from the earlier CNN saturation runs</span>
+            </div>
+            <div class="metric">
+              <span class="value">2.5%</span>
+              <span class="label">Identity-task error on the real channel, showing the architecture can fit easy maps</span>
+            </div>
+            <div class="metric">
+              <span class="value">1000</span>
+              <span class="label">FGMRES steps in the v6 benchmark without convergence for the neural preconditioner</span>
+            </div>
+            <div class="metric">
+              <span class="value">&lt; 30%</span>
+              <span class="label">Approximate transfer-accuracy gate believed necessary before the preconditioner helps</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </header>
 
-          <div class="section-label">Method</div>
-          <p>Replace the Hankel Green's function
-            <span class="math">G(r) = e<sup>ikr</sup>/√r</span>
-            with a phase-only version
-            <span class="math">G̃(r) = e<sup>ikr</sup></span>
-            (constant amplitude, same phase field).
-            Train with identical hyperparameters in both UP and DOWN directions.
+    <nav class="topnav">
+      <a href="#overview">Overview</a>
+      <a href="#architectures">Interactive Architectures</a>
+      <a href="#fgmres">Interactive FGMRES</a>
+      <a href="#timeline">Timeline</a>
+      <a href="#results">Result Table</a>
+      <a href="#next">Next Steps</a>
+    </nav>
+
+    <section id="overview">
+      <div class="section-card">
+        <h2 class="section-title">What Matters First</h2>
+        <p class="section-intro">
+          The project is not "training a generic image model." It is trying to learn an operator that preserves source geometry
+          while changing frequency, then use that operator inside a hard indefinite linear solve. The page below separates those ideas so the logic is easier to follow.
+        </p>
+
+        <div class="grid-3">
+          <div class="mini-card">
+            <h3>1. What goes into the network?</h3>
+            <p>
+              A 29-channel tensor on a <code>512 x 512</code> grid:
+              real and imaginary parts of <code>u_low</code>, a PML map, 24 Fourier positional channels,
+              a normalized frequency scalar, and a direction bit.
+            </p>
+          </div>
+          <div class="mini-card">
+            <h3>2. What comes out?</h3>
+            <p>
+              Two channels: the predicted real and imaginary parts of <code>u_high</code>.
+              Training uses interior-focused normalization so the trivial zero predictor is exactly <code>100%</code> RelL2.
+            </p>
+          </div>
+          <div class="mini-card">
+            <h3>3. Why is GMRES involved?</h3>
+            <p>
+              The learned transfer map is not the final answer. It becomes one stage of an approximate inverse
+              that is applied at every Krylov iteration, so solver behavior depends on both model accuracy and algorithmic compatibility.
+            </p>
+          </div>
+        </div>
+
+        <div class="key-facts">
+          <div class="fact">
+            <span class="k">System</span>
+            <span class="v">(Delta + (omega / c + i sigma)^2) u = f with PML boundaries</span>
+          </div>
+          <div class="fact">
+            <span class="k">Data</span>
+            <span class="v">Analytic Green's function samples, 3-6 Gaussian sources, FFT convolution</span>
+          </div>
+          <div class="fact">
+            <span class="k">Operator Pairs</span>
+            <span class="v"><code>16 -> 32</code>, <code>32 -> 64</code>, <code>64 -> 128</code></span>
+          </div>
+          <div class="fact">
+            <span class="k">Main Risk</span>
+            <span class="v">A moderately wrong inverse does not mildly help GMRES; it can actively steer it poorly</span>
+          </div>
+        </div>
+
+        <div class="chip-row">
+          <span class="chip blue">CNN learns something real</span>
+          <span class="chip teal">Identity task says capacity is sufficient</span>
+          <span class="chip gold">Loss design is still evolving</span>
+          <span class="chip red">Neural preconditioner does not help yet</span>
+        </div>
+      </div>
+    </section>
+
+    <section id="architectures">
+      <div class="section-card">
+        <h2 class="section-title">Interactive Architecture Explorer</h2>
+        <p class="section-intro">
+          Click blocks in the diagrams. The right panel explains what each stage does and why it matters for Helmholtz transfer.
+          The CNN diagram follows <code>experiments/claude/train_transfer_v2.py</code>. The U-Net diagram follows
+          <code>experiments/claude/unet/train_unet.py</code>.
+        </p>
+
+        <div class="explainer-grid">
+          <div class="tabs">
+            <button class="tab-btn active" data-diagram="cnn">
+              <strong>Dilated CNN</strong>
+              <span>Flat stack with a wide receptive field and no explicit multiscale skip paths.</span>
+            </button>
+            <button class="tab-btn" data-diagram="unet">
+              <strong>ResU-Net</strong>
+              <span>Encoder-decoder with skip connections, learnable downsampling, and residual blocks.</span>
+            </button>
+          </div>
+
+          <div class="diagram-shell">
+            <div class="diagram-header">
+              <div>
+                <h3 id="diagramTitle">Dilated CNN for frequency transfer</h3>
+                <p id="diagramSubtitle">A flat model that expands receptive field through dilation instead of pooling.</p>
+              </div>
+              <div class="legend">
+                <span><i style="background:#eef4ff;"></i> feature transform</span>
+                <span><i style="background:#ebfbf8;"></i> multiscale merge</span>
+                <span><i style="background:#fff8e7;"></i> bottleneck or receptive-field expansion</span>
+              </div>
+            </div>
+
+            <div class="diagram active" id="diagram-cnn">
+              <div class="flow-row flow-5">
+                <button class="diagram-node node-input active" data-info="cnn-input">
+                  <strong>Input tensor</strong>
+                  <small>29 channels at 512 x 512</small>
+                </button>
+                <div class="flow-arrow">-></div>
+                <button class="diagram-node node-blue" data-info="cnn-stem">
+                  <strong>Stem</strong>
+                  <small>1 x 1 conv, InstanceNorm, ReLU<br>29 -> 128 channels</small>
+                </button>
+                <div class="flow-arrow">-></div>
+                <button class="diagram-node node-blue" data-info="cnn-head">
+                  <strong>Head</strong>
+                  <small>1 x 1 conv<br>128 -> 2 channels</small>
+                </button>
+              </div>
+
+              <div class="skip-note">Middle stack: eight dilated blocks applied sequentially</div>
+              <div class="cnn-blocks">
+                <button class="diagram-node node-gold" data-info="cnn-b1">
+                  <strong>Block 1</strong>
+                  <small>kernel 3 or 7<br>dilation 1</small>
+                </button>
+                <button class="diagram-node node-gold" data-info="cnn-b2">
+                  <strong>Block 2</strong>
+                  <small>same width<br>dilation 2</small>
+                </button>
+                <button class="diagram-node node-gold" data-info="cnn-b3">
+                  <strong>Block 3</strong>
+                  <small>same width<br>dilation 3</small>
+                </button>
+                <button class="diagram-node node-gold" data-info="cnn-b4">
+                  <strong>Block 4</strong>
+                  <small>same width<br>dilation 4</small>
+                </button>
+                <button class="diagram-node node-gold" data-info="cnn-b5">
+                  <strong>Block 5</strong>
+                  <small>same width<br>dilation 5</small>
+                </button>
+                <button class="diagram-node node-gold" data-info="cnn-b6">
+                  <strong>Block 6</strong>
+                  <small>same width<br>dilation 6</small>
+                </button>
+                <button class="diagram-node node-gold" data-info="cnn-b7">
+                  <strong>Block 7</strong>
+                  <small>same width<br>dilation 7</small>
+                </button>
+                <button class="diagram-node node-gold" data-info="cnn-b8">
+                  <strong>Block 8</strong>
+                  <small>same width<br>dilation 8</small>
+                </button>
+              </div>
+            </div>
+
+            <div class="diagram" id="diagram-unet">
+              <div class="unet-layout">
+                <div class="unet-col">
+                  <button class="diagram-node node-input active" data-info="unet-input">
+                    <strong>Input</strong>
+                    <small>29 channels<br>512 x 512</small>
+                  </button>
+                  <button class="diagram-node node-blue" data-info="unet-e1">
+                    <strong>Encoder L1</strong>
+                    <small>stem + ResBlock<br>32 channels</small>
+                  </button>
+                  <button class="diagram-node node-blue" data-info="unet-e2">
+                    <strong>Encoder L2</strong>
+                    <small>stride-2 downsample<br>64 channels</small>
+                  </button>
+                  <button class="diagram-node node-blue" data-info="unet-e3">
+                    <strong>Encoder L3</strong>
+                    <small>stride-2 downsample<br>128 channels</small>
+                  </button>
+                  <button class="diagram-node node-blue" data-info="unet-e4">
+                    <strong>Encoder L4</strong>
+                    <small>stride-2 downsample<br>256 channels</small>
+                  </button>
+                </div>
+                <div class="unet-col">
+                  <div class="skip-note">skip</div>
+                  <button class="diagram-node node-teal" data-info="unet-s1">
+                    <strong>Skip 1</strong>
+                    <small>retain fine detail<br>512 x 512</small>
+                  </button>
+                  <button class="diagram-node node-teal" data-info="unet-s2">
+                    <strong>Skip 2</strong>
+                    <small>retain medium detail<br>256 x 256</small>
+                  </button>
+                  <button class="diagram-node node-teal" data-info="unet-s3">
+                    <strong>Skip 3</strong>
+                    <small>retain coarse detail<br>128 x 128</small>
+                  </button>
+                  <button class="diagram-node node-teal" data-info="unet-s4">
+                    <strong>Skip 4</strong>
+                    <small>retain coarse detail<br>64 x 64</small>
+                  </button>
+                </div>
+                <div class="unet-col">
+                  <div class="skip-note">bottom</div>
+                  <button class="diagram-node node-gold" data-info="unet-bottleneck">
+                    <strong>Bottleneck</strong>
+                    <small>ResBlock at 32 x 32<br>512 channels</small>
+                  </button>
+                </div>
+                <div class="unet-col">
+                  <div class="skip-note">decoder</div>
+                  <button class="diagram-node node-teal" data-info="unet-d4">
+                    <strong>Decoder D4</strong>
+                    <small>upsample + concat + merge<br>256 channels</small>
+                  </button>
+                  <button class="diagram-node node-teal" data-info="unet-d3">
+                    <strong>Decoder D3</strong>
+                    <small>upsample + concat + merge<br>128 channels</small>
+                  </button>
+                  <button class="diagram-node node-teal" data-info="unet-d2">
+                    <strong>Decoder D2</strong>
+                    <small>upsample + concat + merge<br>64 channels</small>
+                  </button>
+                  <button class="diagram-node node-teal" data-info="unet-d1">
+                    <strong>Decoder D1</strong>
+                    <small>upsample + concat + merge<br>32 channels</small>
+                  </button>
+                </div>
+                <div class="unet-col">
+                  <div class="skip-note">output</div>
+                  <button class="diagram-node node-blue" data-info="unet-head">
+                    <strong>Head</strong>
+                    <small>1 x 1 linear conv<br>2 channels out</small>
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <aside class="detail-panel">
+            <div class="eyebrow">Selected Block</div>
+            <h3 id="detailTitle">Input tensor</h3>
+            <p id="detailSummary">
+              The model sees the low-frequency field plus geometry cues. It is not asked to infer the domain or source layout from scratch.
+            </p>
+            <ul id="detailBullets">
+              <li>Two channels are the real and imaginary parts of <code>u_low</code>.</li>
+              <li>The other channels describe position, PML structure, frequency context, and solve direction.</li>
+              <li>This is why the problem is "operator transfer with metadata," not plain image-to-image regression.</li>
+            </ul>
+          </aside>
+        </div>
+      </div>
+    </section>
+
+    <section id="fgmres">
+      <div class="section-card">
+        <h2 class="section-title">Interactive Flexible GMRES Explainer</h2>
+        <p class="section-intro">
+          If the neural preconditioner feels abstract, the key idea is this:
+          GMRES builds a subspace of residual directions, while FGMRES also stores the preconditioned vectors that generated those directions.
+          That extra bookkeeping is what makes it "flexible."
+        </p>
+
+        <div class="gmres-layout">
+          <div class="step-list">
+            <button class="step-btn active" data-step="s1"><span class="step-num">1</span>Start from the residual</button>
+            <button class="step-btn" data-step="s2"><span class="step-num">2</span>Apply the current preconditioner</button>
+            <button class="step-btn" data-step="s3"><span class="step-num">3</span>Push through A_H</button>
+            <button class="step-btn" data-step="s4"><span class="step-num">4</span>Orthogonalize and expand the basis</button>
+            <button class="step-btn" data-step="s5"><span class="step-num">5</span>Solve a small least-squares problem</button>
+            <button class="step-btn" data-step="s6"><span class="step-num">6</span>Update x using the stored preconditioned vectors</button>
+          </div>
+
+          <div class="step-visual">
+            <h3 id="stepTitle">1. Start from the residual</h3>
+            <p id="stepSubtitle">FGMRES normalizes the current residual and uses it as the next Krylov basis vector <code>v_j</code>.</p>
+
+            <div class="pipeline">
+              <div class="diagram-node node-input gm-node active" data-step-node="r">
+                <strong>Residual basis</strong>
+                <small><code>v_j</code><br>normalized residual direction</small>
+              </div>
+              <div class="diagram-node node-blue gm-node" data-step-node="m">
+                <strong>Preconditioner apply</strong>
+                <small><code>z_j = M_j^{-1} v_j</code></small>
+              </div>
+              <div class="diagram-node node-gold gm-node" data-step-node="a">
+                <strong>High-frequency operator</strong>
+                <small><code>w = A_H z_j</code></small>
+              </div>
+              <div class="diagram-node node-teal gm-node" data-step-node="h">
+                <strong>Arnoldi step</strong>
+                <small>orthogonalize <code>w</code> against prior <code>v_i</code></small>
+              </div>
+              <div class="diagram-node node-blue gm-node" data-step-node="y">
+                <strong>Small solve</strong>
+                <small>choose coefficients <code>y</code> that minimize residual</small>
+              </div>
+              <div class="diagram-node node-red gm-node" data-step-node="x">
+                <strong>State update</strong>
+                <small><code>x = x_0 + sum y_i z_i</code></small>
+              </div>
+            </div>
+
+            <div class="step-copy">
+              <h4 id="stepCalloutTitle">What to remember</h4>
+              <p id="stepCalloutText">
+                The residual is the direction in which the current solution is still wrong. GMRES starts by asking:
+                "which correction directions are worth exploring next?"
+              </p>
+              <ul id="stepBullets">
+                <li>Standard GMRES stores basis vectors <code>v_1, v_2, ...</code>.</li>
+                <li>FGMRES stores both <code>v_j</code> and the preconditioned vectors <code>z_j</code>.</li>
+                <li>This matters when the preconditioner is variable, approximate, nonlinear, or changes in effect across iterations.</li>
+              </ul>
+            </div>
+          </div>
+        </div>
+
+        <div class="callout">
+          <h3>What "flexible" means in one sentence</h3>
+          <p>
+            In standard right-preconditioned GMRES, one fixed linear map <code>M^{-1}</code> is assumed everywhere.
+            In FGMRES, the effective preconditioning action may differ from step to step, so the algorithm keeps the actual corrected vectors
+            <code>z_j = M_j^{-1} v_j</code> and uses those in the final update.
           </p>
-
-          <div class="section-label">Results</div>
-          <div class="result-box">
-            Phase-only (UP): <span class="bad">100% RelL2 at every epoch</span> — model learns nothing<br>
-            Phase-only (DOWN): <span class="bad">100% RelL2 at every epoch</span> — confirmed<br>
-            Hankel (train4 reference): 59–66%
-          </div>
-
-          <div class="section-label">Interpretation</div>
-          <div class="interp-box">
-            <strong>The 1/√r amplitude singularity is a necessary condition for learning.</strong>
-            Without a spatially unique amplitude marker at each source location, the model
-            cannot decompose multi-source fields, consistent with a Voronoi-windowing interpretation.
-            This is the strongest possible confirmation of the professor's hypothesis —
-            not just a degradation, but a complete failure to learn.
-          </div>
-
-          <div class="status-bar">
-            <span class="status-pill pill-positive">Hypothesis confirmed: 1/r necessary</span>
-          </div>
         </div>
-      </div>
 
-      <!-- EXP 1C -->
-      <div class="exp-card partial" data-n="1C">
-        <div class="exp-header">
-          <span class="tag tag-probe">Linearity Test</span>
-          <span class="date">2026-03-13</span>
-          <h3>Exp 1C — Superposition Test: Is the learned operator linear?</h3>
-        </div>
-        <div class="exp-body">
-          <div class="section-label">Motivation</div>
-          <p>If <span class="math">T</span> is linear, then
-            <span class="math">T(f₁ + f₂) = T(f₁) + T(f₂)</span>.
-            Linearity is necessary for the operator to be usable as a preconditioner
-            (preconditioners must be linear maps on residuals).
-            Paper-ready threshold: <span class="math">ε < 8%</span>.
+        <div class="callout">
+          <h3>Your specific neural preconditioner, unpacked</h3>
+          <p>
+            In these experiments, a single preconditioner application is not one cheap matrix multiply.
+            It is a pipeline:
+            restrict to the interior, map high to low frequency with <code>T_down</code>, solve approximately at low frequency,
+            map back with <code>T_up</code>, then pad back into the full grid.
           </p>
+          <ol>
+            <li>Take the current basis vector or residual-like direction in the high-frequency space.</li>
+            <li>Restrict to the interior where the learned operator is defined.</li>
+            <li>Apply <code>T_down</code> to guess the corresponding low-frequency field.</li>
+            <li>Apply the low-frequency inverse surrogate, such as ILU on <code>A_L</code>.</li>
+            <li>Apply <code>T_up</code> to lift the correction back to the high-frequency space.</li>
+            <li>Return that corrected vector to FGMRES as <code>z_j</code>.</li>
+          </ol>
+        </div>
+      </div>
+    </section>
 
-          <div class="section-label">Method (Variant A)</div>
-          <p>For held-out source pairs
-            <span class="math">(f₁, f₂)</span>,
-            compute <span class="math">ε = ‖T(f₁+f₂) − T(f₁) − T(f₂)‖ / ‖T(f₁)+T(f₂)‖</span>.
-            Input to the network is the sum of the two input fields (Variant A normalisation).
-          </p>
+    <section id="timeline">
+      <div class="section-card">
+        <h2 class="section-title">Experiment Timeline</h2>
+        <p class="section-intro">
+          The experiments below are rewritten as short decision points: what was tested, what was learned, and how it changed the next move.
+        </p>
 
-          <div class="section-label">Results</div>
-          <table class="data">
-            <thead>
-              <tr>
-                <th>Direction</th>
-                <th>Pair</th>
-                <th>Mean ε</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr>
-                <td class="label">UP</td>
-                <td>16→32</td>
-                <td class="warn">38.1%</td>
-              </tr>
-              <tr>
-                <td class="label">UP</td>
-                <td>32→64</td>
-                <td class="warn">35.6%</td>
-              </tr>
-              <tr>
-                <td class="label">UP</td>
-                <td>64→128</td>
-                <td class="warn">32.3%</td>
-              </tr>
-              <tr>
-                <td class="label">DOWN</td>
-                <td>32→16</td>
-                <td class="warn">35.4%</td>
-              </tr>
-              <tr>
-                <td class="label">DOWN</td>
-                <td>64→32</td>
-                <td class="warn">33.0%</td>
-              </tr>
-              <tr>
-                <td class="label">DOWN</td>
-                <td>128→64</td>
-                <td class="warn">29.5%</td>
-              </tr>
-            </tbody>
-          </table>
+        <div class="timeline">
+          <article class="event">
+            <div class="event-head">
+              <h3>Exp 0 - Saturation curve: can the model learn at all?</h3>
+              <div class="event-date">Early March 2026</div>
+            </div>
+            <div class="event-body">
+              <p>
+                Training on Green's-function data with <code>N in {150, 300, 600, 1200}</code> per pair showed clear improvement over the trivial baseline.
+                The best run reached <code>59.0%</code> RelL2 in the down direction and <code>65.5%</code> in the up direction at <code>N = 1200</code>.
+              </p>
+              <table>
+                <thead>
+                  <tr>
+                    <th>N / pair</th>
+                    <th>Down val RelL2</th>
+                    <th>Up val RelL2</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr><td>150</td><td>69.7%</td><td>79.2%</td></tr>
+                  <tr><td>300</td><td>65.6%</td><td>71.5%</td></tr>
+                  <tr><td>600</td><td>61.9%</td><td>65.5%</td></tr>
+                  <tr><td>1200</td><td>59.0%</td><td>65.5%</td></tr>
+                </tbody>
+              </table>
+              <div class="takeaway good">
+                Takeaway: the model is learning something real, but the saturation point has not been reached, so data scale and architecture still matter.
+              </div>
+            </div>
+          </article>
 
-          <div class="section-label">Diagnosis from spatial residual maps</div>
-          <div class="result-box">
-            Signed residual Re[T(f₁+f₂)] − Re[T(f₁)] − Re[T(f₂)]:
-            <br>
-            <span class="bad">Large-scale spatially uniform pattern (not localised near sources)</span>
-            <br>
-            <span class="note">→ global scaling error, not geometric nonlinearity</span>
-            <br><br>
-            Root cause: Variant A combined input has ~√2 × higher amplitude than
-            training distribution. InstanceNorm renormalises differently → global scale error.
-            <br>
-            Variant B fix: normalise combined input by combined RMS before inference.
+          <article class="event">
+            <div class="event-head">
+              <h3>Exp 1A - Identity task: is the architecture the bottleneck?</h3>
+              <div class="event-date">2026-03-13</div>
+            </div>
+            <div class="event-body">
+              <p>
+                When the target equals the input frequency, the network nearly solves the task on the real channel:
+                <code>2.5%</code> RelL2 at <code>N = 150</code>. The imaginary channel stayed near <code>53%</code>,
+                but that was traced to a missing loss weight, not representational failure.
+              </p>
+              <div class="takeaway good">
+                Takeaway: the architecture can fit a simple map. The hard part is the actual frequency transfer, not basic capacity.
+              </div>
+            </div>
+          </article>
+
+          <article class="event">
+            <div class="event-head">
+              <h3>Exp 1B - Amplitude ablation: is the singularity necessary?</h3>
+              <div class="event-date">2026-03-13</div>
+            </div>
+            <div class="event-body">
+              <p>
+                Replacing the Hankel Green's function with a phase-only version removed the <code>1 / sqrt(r)</code>-type amplitude cue.
+                Training then flatlined at <code>100%</code> RelL2 in both directions.
+              </p>
+              <div class="takeaway good">
+                Takeaway: amplitude structure is not decorative. It appears necessary for source localization and decomposition.
+              </div>
+            </div>
+          </article>
+
+          <article class="event">
+            <div class="event-head">
+              <h3>Exp 1C - Superposition test: is the learned operator linear?</h3>
+              <div class="event-date">2026-03-13</div>
+            </div>
+            <div class="event-body">
+              <p>
+                Variant A reported a large superposition error, roughly <code>30-38%</code>, which initially looked incompatible with preconditioning.
+                Spatial residual maps then pointed to a global rescaling artifact caused by incorrect normalization of the summed input.
+              </p>
+              <div class="takeaway warn">
+                Takeaway: the bad number is likely a normalization bug, not proof of deep nonlinearity. Variant B is still the decisive follow-up.
+              </div>
+            </div>
+          </article>
+
+          <article class="event">
+            <div class="event-head">
+              <h3>Exp 2 - Pipeline rebuild: larger dataset and better training loop</h3>
+              <div class="event-date">2026-03-16</div>
+            </div>
+            <div class="event-body">
+              <p>
+                The training pipeline was rebuilt around RMS normalization, an explicit imaginary-channel term, cosine annealing with warm restarts,
+                and longer patience. Datasets at <code>N = 4800</code> per pair were generated for both directions.
+              </p>
+              <div class="takeaway warn">
+                Takeaway: infrastructure is now in place for the real scaling test, but the key measurement is still pending: does larger data push transfer error far enough down?
+              </div>
+            </div>
+          </article>
+
+          <article class="event">
+            <div class="event-head">
+              <h3>Exp 3 - Complex RRMSE loss: a cleaner objective</h3>
+              <div class="event-date">2026-03-19 to 2026-04-03</div>
+            </div>
+            <div class="event-body">
+              <p>
+                The old loss treated real and imaginary parts as separate channels. The new loss combines them into one complex RRMSE, which is rotation-aware and removes the need for a manual
+                <code>lambda_imag</code> hyperparameter. Early runs produced <code>82.4%</code> and <code>84.6%</code> validation RelL2 for one up/down pair with small kernels and limited training.
+              </p>
+              <div class="takeaway warn">
+                Takeaway: the new loss is mathematically cleaner, but the first runs are not yet competitive with the earlier best CNN numbers, so the verdict remains open.
+              </div>
+            </div>
+          </article>
+
+          <article class="event">
+            <div class="event-head">
+              <h3>Exp 4 - GMRES / FGMRES benchmark: does the neural preconditioner help?</h3>
+              <div class="event-date">2026-03-13 to 2026-04-04</div>
+            </div>
+            <div class="event-body">
+              <p>
+                At <code>omega = 16 -> 32</code> with <code>N = 4800</code> weights and up to <code>1000</code> Krylov steps,
+                none of the tested preconditioners converged to <code>1e-4</code>. The neural option stalled near <code>0.999</code> final residual,
+                while plain GMRES ended near <code>0.181</code> and ILU near <code>0.158</code>.
+              </p>
+              <table>
+                <thead>
+                  <tr>
+                    <th>Variant</th>
+                    <th>Iters</th>
+                    <th>Converged?</th>
+                    <th>Final residual</th>
+                    <th>Per-step cost</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr><td>A - Unpreconditioned</td><td>1000</td><td>No</td><td>0.181</td><td>~148 ms</td></tr>
+                  <tr><td>B - Jacobi</td><td>1000</td><td>No</td><td>0.164</td><td>2 ms</td></tr>
+                  <tr><td>C - ILU(0)</td><td>1000</td><td>No</td><td>0.158</td><td>169 ms</td></tr>
+                  <tr><td>D - CSL</td><td>1000</td><td>No</td><td>0.649</td><td>171 ms</td></tr>
+                  <tr><td>E - Neural</td><td>1000</td><td>No</td><td>0.999</td><td>635 ms</td></tr>
+                </tbody>
+              </table>
+              <div class="takeaway bad">
+                Takeaway: this is an honest negative result. Current transfer accuracy is far from the regime where the learned inverse is good enough to guide Krylov iterations.
+              </div>
+            </div>
+          </article>
+        </div>
+      </div>
+    </section>
+
+    <section id="results">
+      <div class="section-card">
+        <h2 class="section-title">Summary Table</h2>
+        <p class="section-intro">
+          This table is the compact version: one line per experiment, one sentence of status.
+        </p>
+
+        <table>
+          <thead>
+            <tr>
+              <th>Experiment</th>
+              <th>Date</th>
+              <th>Key metric</th>
+              <th>Value</th>
+              <th>Status</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>0 - Saturation curve</td>
+              <td>Feb-Mar 2026</td>
+              <td>Validation RelL2 at N = 1200</td>
+              <td>59-66%</td>
+              <td><span class="status good">Learning confirmed</span></td>
+            </tr>
+            <tr>
+              <td>1A - Identity task</td>
+              <td>2026-03-13</td>
+              <td>Validation RelL2, real channel</td>
+              <td>2.5%</td>
+              <td><span class="status good">Architecture sufficient</span></td>
+            </tr>
+            <tr>
+              <td>1B - Amplitude ablation</td>
+              <td>2026-03-13</td>
+              <td>Validation RelL2, phase-only data</td>
+              <td>100%</td>
+              <td><span class="status good">Hypothesis confirmed</span></td>
+            </tr>
+            <tr>
+              <td>1C - Superposition Variant A</td>
+              <td>2026-03-13</td>
+              <td>Linearity error epsilon</td>
+              <td>30-38%</td>
+              <td><span class="status warn">Artifact likely</span></td>
+            </tr>
+            <tr>
+              <td>2 - N = 4800 pipeline</td>
+              <td>2026-03-16</td>
+              <td>Dataset scale</td>
+              <td>14,400 samples per direction</td>
+              <td><span class="status open">Training in progress</span></td>
+            </tr>
+            <tr>
+              <td>3 - Complex RRMSE</td>
+              <td>2026-03-19 onward</td>
+              <td>Validation RelL2</td>
+              <td>82-85%</td>
+              <td><span class="status warn">Objective improved, performance unresolved</span></td>
+            </tr>
+            <tr>
+              <td>4 - Neural FGMRES</td>
+              <td>2026-03-13 to 2026-04-04</td>
+              <td>Final residual after 1000 steps</td>
+              <td>0.999</td>
+              <td><span class="status bad">Negative result</span></td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section id="next">
+      <div class="section-card">
+        <h2 class="section-title">What To Do Next</h2>
+        <p class="section-intro">
+          The next steps are mostly about reducing uncertainty in the right order.
+        </p>
+
+        <div class="grid-2">
+          <div class="callout">
+            <h3>Highest-priority measurements</h3>
+            <ol>
+              <li>Run the real <code>N = 4800</code> saturation curve and check whether RelL2 drops materially below the current plateau.</li>
+              <li>Finish Superposition Variant B with correct combined normalization.</li>
+              <li>Test the preconditioner on a smaller grid to separate solver difficulty from preconditioner design flaws.</li>
+            </ol>
           </div>
-
-          <div class="section-label">Interpretation</div>
-          <div class="interp-box">
-            The 30–38% is a <strong>normalisation artifact</strong>, not true nonlinearity.
-            The spatial pattern of the error (global, not source-localised) is the diagnostic.
-            Variant B (correct normalisation) is expected to drop ε well below 8%.
-            This experiment was decisive: it told us exactly <em>why</em> the numbers look
-            bad and <em>what</em> to fix.
-          </div>
-
-          <div class="status-bar">
-            <span class="status-pill pill-partial">Artifact identified, Variant B pending</span>
+          <div class="callout">
+            <h3>Interpretation guardrails</h3>
+            <ol>
+              <li>A cleaner loss is not enough by itself; the outer criterion is solver usefulness, not aesthetic training curves.</li>
+              <li>If InstanceNorm breaks scale equivariance, transfer accuracy and preconditioner compatibility can both suffer.</li>
+              <li>If the neural inverse remains approximate at the wrong scale, FGMRES may legitimately do worse than plain GMRES.</li>
+            </ol>
           </div>
         </div>
       </div>
-
-      <!-- EXP 2 — Pipeline rebuild -->
-      <div class="exp-card positive" data-n="2">
-        <div class="exp-header">
-          <span class="tag tag-system">Pipeline</span>
-          <span class="date">2026-03-16</span>
-          <h3>Exp 2 — Full Pipeline Rebuild: Larger Data + Improved Training</h3>
-        </div>
-        <div class="exp-body">
-          <div class="section-label">Motivation</div>
-          <p>The saturation curve at N=1200 has not plateaued (N* ≈ 4000–8000).
-            Before the preconditioner can work, the transfer operator must be sufficiently
-            accurate. Four systematic changes were made.</p>
-
-          <div class="section-label">Four changes (train_transfer.py vs train4)</div>
-          <div class="result-box">
-            <strong>1. RMS normalisation</strong>
-            <br>
-            &nbsp; Both u_low and u_high ÷ rms(u_low|interior). Zero-predictor = 100% analytically.
-            <br><br>
-            <strong>2. Im channel in loss</strong> (motivated by Exp 1A)
-            <br>
-            &nbsp; L = λ₁·MSE_Re + λ₂·RelL2_Re + λ_imag·RelL2_Im
-            <br>
-            &nbsp; Phase 1 grid search: λ_imag ∈ {0.0, 0.1, 0.3, 1.0}
-            <br><br>
-            <strong>3. Cosine annealing with warm restarts</strong>
-            <br>
-            &nbsp; T₀=50, T_mult=2 → LR restarts at epochs 50, 150, 350, 750
-            <br><br>
-            <strong>4. Extended patience</strong>
-            <br>
-            &nbsp; max_epochs=1000, patience=150 (spans two full restart cycles)
-          </div>
-
-          <div class="section-label">Dataset generated (analytic Green's function, FFT)</div>
-          <div class="result-box">
-            up_N4800_seed42: 14 400 samples, ~75 GB (3 pairs × 4800) — <span class="good">COMPLETE</span>
-            <br>
-            down_N4800_seed42: 14 400 samples, ~75 GB (3 pairs × 4800) — <span class="good">COMPLETE</span>
-            <br>
-            <span class="note">Nested seed: first N samples match any sub-dataset exactly (no re-generation
-              needed)</span>
-            <br>
-            <span class="note">Format: directory of .npy memmaps — OS pages ~5 MB/sample at load time</span>
-          </div>
-
-          <div class="section-label">Phase 1 training runs (λ_imag search at N=1200)</div>
-          <table class="data">
-            <thead>
-              <tr>
-                <th>Server</th>
-                <th>Direction</th>
-                <th>λ_imag</th>
-                <th>Batch</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr>
-                <td>wave7b</td>
-                <td>UP</td>
-                <td>0.0 / 0.1 / 0.3 / 1.0</td>
-                <td>4</td>
-              </tr>
-              <tr>
-                <td>wave6</td>
-                <td>DOWN</td>
-                <td>0.0 / 0.1 / 0.3 / 1.0</td>
-                <td>2</td>
-              </tr>
-            </tbody>
-          </table>
-
-          <div class="status-bar">
-            <span class="status-pill pill-positive">Dataset ready for N=4800 saturation curve</span>
-            <span class="status-pill pill-open">Best λ_imag: prior is 0.3</span>
-          </div>
-        </div>
-      </div>
-
-      <!-- EXP 3 — Complex RRMSE loss -->
-      <div class="exp-card positive" data-n="3">
-        <div class="exp-header">
-          <span class="tag tag-ablation">Loss Design</span>
-          <span class="date">2026-03-19 → 2026-04-03</span>
-          <h3>Exp 3 — Complex RRMSE Loss: Mathematically Correct Objective</h3>
-        </div>
-        <div class="exp-body">
-          <div class="section-label">Motivation</div>
-          <p>Re and Im are not independent channels —
-            they are the real and imaginary parts of a single complex field
-            <span class="math">u ∈ ℂ</span>.
-            Treating them as separate loss terms weights the two directions of a complex
-            rotation differently, which is artificial.
-            A rotation-invariant loss must use the complex modulus.
-          </p>
-
-          <div class="section-label">New loss (train_transfer_v2.py)</div>
-          <div class="result-box">
-            Old: RelL2_Re + λ_imag · RelL2_Im (two separate real norms)
-            <br>
-            New: RRMSE_ℂ = √(∑|ŷ − y|²<sub>ℂ</sub>) / √(∑|y|²<sub>ℂ</sub>) over interior
-            <br><br>
-            Equivalent to: ‖ŷ_Re − y_Re‖² + ‖ŷ_Im − y_Im‖² in the numerator/denominator
-            jointly — no free λ_imag hyperparameter, Re and Im weighted equally.
-            <br>
-            Suggested by Aimé Fournier (2026-04-03).
-          </div>
-
-          <div class="section-label">Results (N=1200, kernel=3, 80–95 epochs)</div>
-          <table class="data">
-            <thead>
-              <tr>
-                <th>Experiment</th>
-                <th>Direction</th>
-                <th>Best val RelL2</th>
-                <th>Note</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr>
-                <td class="label">T_up_32_64 (1st run)</td>
-                <td>UP</td>
-                <td class="warn">140.6%</td>
-                <td class="label">LR too high</td>
-              </tr>
-              <tr>
-                <td class="label">T_down_64_32 (1st run)</td>
-                <td>DOWN</td>
-                <td class="warn">109.1%</td>
-                <td class="label">LR too high</td>
-              </tr>
-              <tr>
-                <td class="label">T_up_32_64 (2nd run)</td>
-                <td>UP</td>
-                <td class="highlight">82.4%</td>
-                <td class="label">lr=1.1e-4, k=3</td>
-              </tr>
-              <tr>
-                <td class="label">T_down_64_32 (2nd run)</td>
-                <td>DOWN</td>
-                <td class="highlight">84.6%</td>
-                <td class="label">lr=1.1e-4, k=3</td>
-              </tr>
-            </tbody>
-          </table>
-
-          <div class="section-label">Interpretation</div>
-          <div class="interp-box">
-            The complex RRMSE loss is mathematically cleaner and eliminates the λ_imag
-            hyperparameter search. The 82–85% results at N=1200 with kernel=3 and only
-            80–95 epochs are not yet at best performance (train4 reached 59–66% with
-            kernel=7 and more epochs). The N=4800 run with warm restarts and full training
-            budget is the next step.
-          </div>
-
-          <div class="status-bar">
-            <span class="status-pill pill-positive">Loss formulation principled</span>
-            <span class="status-pill pill-partial">N=4800 run needed for fair comparison</span>
-          </div>
-        </div>
-      </div>
-
-      <!-- EXP 4 — Preconditioner benchmarks -->
-      <div class="exp-card negative" data-n="4">
-        <div class="exp-header">
-          <span class="tag tag-negative">Negative Result</span>
-          <span class="date">2026-03-13 → 2026-04-04</span>
-          <h3>Exp 4 — GMRES Preconditioner Benchmarks (v1–v6): Does the neural operator help?</h3>
-        </div>
-        <div class="exp-body">
-          <div class="section-label">Preconditioner construction</div>
-          <div class="result-box">
-            M⁻¹v (FGMRES right-preconditioner, one solve per Krylov step):
-            <br>
-            &nbsp; 1. Extract interior of v → v_int ∈ ℝ<sup>288×288</sup>
-            <br>
-            &nbsp; 2. Apply T_down → ũ_low (approximate low-freq solution)
-            <br>
-            &nbsp; 3. Apply A_L⁻¹(ILU) → low-freq corrected field
-            <br>
-            &nbsp; 4. Apply T_up → approximate high-freq correction
-            <br>
-            &nbsp; 5. Zero-pad back to 512×512
-          </div>
-
-          <div class="section-label">Comparison variants</div>
-          <table class="data">
-            <thead>
-              <tr>
-                <th>Variant</th>
-                <th>Method</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr>
-                <td>A</td>
-                <td class="label">Unpreconditioned GMRES</td>
-              </tr>
-              <tr>
-                <td>B</td>
-                <td class="label">Jacobi (diagonal scaling)</td>
-              </tr>
-              <tr>
-                <td>C</td>
-                <td class="label">ILU(0)</td>
-              </tr>
-              <tr>
-                <td>D</td>
-                <td class="label">Complex Shifted Laplacian (β=0.5)</td>
-              </tr>
-              <tr>
-                <td>E</td>
-                <td class="label">Neural FGMRES (ours)</td>
-              </tr>
-            </tbody>
-          </table>
-
-          <div class="section-label">Results — ω=16→32, N=4800 weights, ILU fill=10, 1000 Krylov steps</div>
-          <table class="data">
-            <thead>
-              <tr>
-                <th>Variant</th>
-                <th>Iters</th>
-                <th>Converged?</th>
-                <th>r_final</th>
-                <th>Per-step cost</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr>
-                <td>A (Unprecond.)</td>
-                <td>1000</td>
-                <td class="warn">No</td>
-                <td class="highlight">0.181</td>
-                <td class="label">~148 ms</td>
-              </tr>
-              <tr>
-                <td>B (Jacobi)</td>
-                <td>1000</td>
-                <td class="warn">No</td>
-                <td class="highlight">0.164</td>
-                <td class="label">2 ms</td>
-              </tr>
-              <tr>
-                <td>C (ILU)</td>
-                <td>1000</td>
-                <td class="warn">No</td>
-                <td class="highlight">0.158</td>
-                <td class="label">169 ms</td>
-              </tr>
-              <tr>
-                <td>D (CSL)</td>
-                <td>1000</td>
-                <td class="warn">No</td>
-                <td class="warn">0.649</td>
-                <td class="label">171 ms</td>
-              </tr>
-              <tr>
-                <td><strong>E (Neural)</strong></td>
-                <td>1000</td>
-                <td class="warn">No</td>
-                <td class="warn">0.999</td>
-                <td class="label">635 ms</td>
-              </tr>
-            </tbody>
-          </table>
-
-          <div class="section-label">Diagnosis</div>
-          <div class="result-box">
-            Neural (E) final residual: <span class="bad">0.999 ≈ no progress after 1000 steps</span>
-            <br>
-            CSL (D): also worse than unpreconditioned (0.649 vs 0.181)
-            <br>
-            Best classical: C (ILU, 0.158) — only marginally better than A
-            <br><br>
-            <span class="note">The 512×512 Helmholtz system at ω=32 is highly indefinite.</span>
-            <span class="note">None of the tested preconditioners achieve convergence to 10⁻⁴.</span>
-            <br><br>
-            Neural preconditioner failure modes identified across versions v1–v6:
-            <br>
-            &nbsp; v1–v2: FGMRES stagnates — preconditioner apply cost >7 s/step on CPU
-            <br>
-            &nbsp; v3–v4: Mismatch between interior-restricted preconditioner and GMRES left-preconditioning
-            <br>
-            &nbsp; v5: splu intractable at 512×512 for A_L⁻¹; switched to spilu (fill=10)
-            <br>
-            &nbsp; v6: GPU inference (635 ms/step), ILU fill=10 — still no convergence
-          </div>
-
-          <div class="section-label">Interpretation</div>
-          <div class="interp-box">
-            <strong>Honest negative result.</strong>
-            The current neural operator (RelL2 ≈ 59–66%) is not yet accurate enough
-            to serve as a useful Krylov preconditioner — a preconditioner that applies
-            an <em>approximate</em> inverse at the wrong scale actively
-            misleads the Krylov iteration.
-            This is well understood mathematically: for right-preconditioning,
-            <span class="math">M ≈ A</span> is required, and 60% relative error in
-            <span class="math">M</span> is far from this regime.
-            <br><br>
-            The CSL also failing to outperform the unpreconditioned system is a known
-            difficulty with 512×512 indefinite Helmholtz problems and is consistent
-            with the literature (Erlangga et al., 2006).
-            <br><br>
-            <strong>Next step:</strong> Improve RelL2 to ≲20–30% via N=4800–9600
-            training before re-benchmarking. A coarser grid test (N=256 or 128)
-            would also isolate whether the problem is with the preconditioner
-            construction or with the intrinsic difficulty of the Helmholtz system.
-          </div>
-
-          <div class="status-bar">
-            <span class="status-pill pill-negative">Neural preconditioner not yet effective</span>
-            <span class="status-pill pill-open">Accuracy gate: RelL2 ≲ 30% needed</span>
-          </div>
-        </div>
-      </div>
-
-    </div><!-- end timeline -->
-
-    <!-- Summary table -->
-    <div class="section-h">Summary of All Results</div>
-
-    <table class="data" style="font-size:13px;">
-      <thead>
-        <tr>
-          <th style="text-align:left">Experiment</th>
-          <th>Date</th>
-          <th>Key Metric</th>
-          <th>Value</th>
-          <th>Status</th>
-        </tr>
-      </thead>
-      <tbody>
-        <tr>
-          <td class="label">0 — Saturation curve (train4)</td>
-          <td>Feb–Mar 2026</td>
-          <td class="label">Val RelL2, N=1200</td>
-          <td class="highlight">59–66%</td>
-          <td class="label">Learning confirmed, N* not reached</td>
-        </tr>
-        <tr>
-          <td class="label">1A — Autoencoder identity</td>
-          <td>2026-03-13</td>
-          <td class="label">Val RelL2, Re, N=150</td>
-          <td class="highlight">2.5%</td>
-          <td class="label">Architecture sufficient; Im bug fixed</td>
-        </tr>
-        <tr>
-          <td class="label">1B — Amplitude ablation</td>
-          <td>2026-03-13</td>
-          <td class="label">Val RelL2, phase-only</td>
-          <td class="warn">100.0%</td>
-          <td class="label">1/r singularity necessary (confirmed)</td>
-        </tr>
-        <tr>
-          <td class="label">1C — Superposition (Variant A)</td>
-          <td>2026-03-13</td>
-          <td class="label">Linearity error ε</td>
-          <td class="warn">30–38%</td>
-          <td class="label">Artifact; Variant B pending</td>
-        </tr>
-        <tr>
-          <td class="label">2 — N=4800 dataset + λ_imag search</td>
-          <td>2026-03-16</td>
-          <td class="label">Dataset size</td>
-          <td>14 400 samples/dir</td>
-          <td class="label">Ready; training in progress</td>
-        </tr>
-        <tr>
-          <td class="label">3 — Complex RRMSE loss (v2)</td>
-          <td>2026-03-19</td>
-          <td class="label">Val RelL2, N=1200</td>
-          <td class="highlight">82–85%</td>
-          <td class="label">Loss principled; N=4800 run pending</td>
-        </tr>
-        <tr>
-          <td class="label">4 — GMRES preconditioner (v1–v6)</td>
-          <td>2026-03-13 →</td>
-          <td class="label">Final residual, 1000 steps</td>
-          <td class="warn">0.999 (E)</td>
-          <td class="label">Negative; accuracy gate not met</td>
-        </tr>
-      </tbody>
-    </table>
-
-    <div class="open-questions">
-      <h3>Open Questions &amp; Next Steps (in order of priority)</h3>
-      <ol>
-        <li>
-          <strong>N=4800 saturation curve</strong> — does RelL2 drop below 45% with the
-          full dataset and warm-restart schedule? This is the necessary gate before
-          re-attempting the preconditioner.
-        </li>
-        <li>
-          <strong>Superposition Variant B</strong> — normalise combined input by combined RMS;
-          expected to show ε &lt; 8% and confirm linearity.
-        </li>
-        <li>
-          <strong>Coarser-grid preconditioner test</strong> — run v6 on a 128×128 or 256×256
-          grid to isolate whether the problem is with the operator accuracy or with
-          the indefiniteness of the 512×512 system.
-        </li>
-        <li>
-          <strong>N=9600 data generation</strong> — launch scripts ready
-          (<code>experiments/claude/launch/generate_N9600_local.sh</code>);
-          needed if curve still declining at N=4800.
-        </li>
-        <li>
-          <strong>Variant B doubling test</strong> — check scale equivariance
-          <span class="math">T(2u) = 2T(u)</span>; InstanceNorm expected to fail (30–50% error),
-          which would motivate replacing InstanceNorm with LayerNorm or GroupNorm.
-        </li>
-      </ol>
-    </div>
+    </section>
 
     <footer>
-      Generated 2026-04-04 &nbsp;·&nbsp; Freq2Transfer &nbsp;·&nbsp;
-      experiments_summary.html
+      Interactive summary generated for local inspection in <code>experiments_summary.html</code>.
+      The diagrams are explanatory widgets, not exact tensor-flow traces.
     </footer>
-
   </div>
-</body>
 
+  <script>
+    const infoMap = {
+      "cnn-input": {
+        title: "Input tensor",
+        summary: "The CNN is given the low-frequency field plus geometry and context channels so it can focus on transfer rather than rediscovering the domain.",
+        bullets: [
+          "Channels include Re(u_low), Im(u_low), a PML map, 24 Fourier positional features, normalized omega, and a direction bit.",
+          "The grid stays at full 512 x 512 resolution throughout the CNN.",
+          "Because the input already includes spatial coordinates, dilation can focus on mixing long-range context instead of inventing position awareness."
+        ]
+      },
+      "cnn-stem": {
+        title: "Stem",
+        summary: "The stem is a 1 x 1 projection from 29 channels to width 128, followed by InstanceNorm and ReLU.",
+        bullets: [
+          "A 1 x 1 convolution mixes channels without changing spatial resolution.",
+          "This is the first place where the handcrafted input channels are fused into a learned feature representation.",
+          "Using a narrow local kernel here avoids blurring before the model has decided which channels matter."
+        ]
+      },
+      "cnn-b1": {
+        title: "Dilated block 1",
+        summary: "The first dilated block behaves mostly like an ordinary convolutional refinement layer.",
+        bullets: [
+          "Each block uses Conv -> InstanceNorm -> activation.",
+          "At dilation 1, the model captures local wavefront structure and near-source detail.",
+          "This is where the network begins to stabilize local oscillation patterns before more global mixing."
+        ]
+      },
+      "cnn-b2": {
+        title: "Dilated block 2",
+        summary: "Dilation 2 begins expanding the receptive field without downsampling.",
+        bullets: [
+          "The spatial grid is unchanged; only the sampling pattern of the convolution widens.",
+          "This lets the model connect nearby oscillatory regions while preserving exact alignment.",
+          "That is useful when phase relationships matter and pooling would be risky."
+        ]
+      },
+      "cnn-b3": {
+        title: "Dilated block 3",
+        summary: "By the third block the model is already integrating structure over a noticeably larger neighborhood.",
+        bullets: [
+          "Helmholtz fields are globally constrained, so purely local filters are usually not enough.",
+          "Dilation is a cheap way to expose broader context without changing tensor size.",
+          "The tradeoff is that very sparse sampling can create blind spots if the stack is not deep enough."
+        ]
+      },
+      "cnn-b4": {
+        title: "Dilated block 4",
+        summary: "This is mid-stack receptive-field expansion: neither purely local nor truly global.",
+        bullets: [
+          "At this stage the model is mixing source geometry, boundary effects, and interference patterns.",
+          "A flat architecture relies on these middle blocks to coordinate information that a U-Net would share through skip paths.",
+          "If the transfer task needs explicit multiscale synthesis, this is a likely pressure point."
+        ]
+      },
+      "cnn-b5": {
+        title: "Dilated block 5",
+        summary: "Higher dilation means wider context, but also sparser sampling of intermediate pixels within each filter footprint.",
+        bullets: [
+          "This helps capture long-range phase and amplitude relationships.",
+          "It can also make exact local detail recovery harder than in a U-Net.",
+          "That tension is part of why comparing the flat CNN and ResU-Net is scientifically useful."
+        ]
+      },
+      "cnn-b6": {
+        title: "Dilated block 6",
+        summary: "The model is now operating with broad context while still never leaving the original resolution.",
+        bullets: [
+          "No pooling means no irreversible loss of high-resolution information.",
+          "But no pooling also means every layer pays the full 512 x 512 compute cost.",
+          "This architecture bets that dilation alone can provide enough context for the transfer operator."
+        ]
+      },
+      "cnn-b7": {
+        title: "Dilated block 7",
+        summary: "This block is close to the widest receptive-field expansion in the stack.",
+        bullets: [
+          "It is one of the main places where distant source interactions can influence a pixel's prediction.",
+          "If the model needs genuine coarse-to-fine reasoning, a flat stack can start to strain here.",
+          "That is one motivation for testing a U-Net with explicit downsampling."
+        ]
+      },
+      "cnn-b8": {
+        title: "Dilated block 8",
+        summary: "The last dilated block prepares a wide-context feature map for the output head.",
+        bullets: [
+          "At this point the model should have integrated local oscillations and broader geometry cues.",
+          "The head does not add much computation; it mostly reads out the final two channels.",
+          "If the stack is underfitting the transfer map, the issue is likely in this full chain, not just in the head."
+        ]
+      },
+      "cnn-head": {
+        title: "Output head",
+        summary: "A final 1 x 1 convolution maps the 128 learned features down to two channels: predicted real and imaginary parts of u_high.",
+        bullets: [
+          "The head is linear; it does not change resolution.",
+          "Because the head is small, most of the model's representational power lives in the stem and dilated blocks.",
+          "This makes the CNN easy to reason about: the middle stack is where the transfer operator is actually learned."
+        ]
+      },
+      "unet-input": {
+        title: "Input to the ResU-Net",
+        summary: "The U-Net takes the same 29-channel input as the CNN, so the comparison is mainly architectural rather than informational.",
+        bullets: [
+          "Both models receive the same low-frequency field and metadata channels.",
+          "The difference is how each architecture moves information across scales.",
+          "That makes the CNN vs U-Net comparison scientifically cleaner."
+        ]
+      },
+      "unet-e1": {
+        title: "Encoder level 1",
+        summary: "The U-Net first projects into 32 channels, then uses a residual block at full resolution.",
+        bullets: [
+          "Fine spatial detail is still intact here.",
+          "This level uses InstanceNorm, which is also used on the next fine level.",
+          "The output is stored as a skip connection for later decoding."
+        ]
+      },
+      "unet-e2": {
+        title: "Encoder level 2",
+        summary: "A stride-2 convolution downsamples to 256 x 256 and increases width to 64 channels.",
+        bullets: [
+          "The model begins trading exact location detail for broader context.",
+          "This is a learnable downsampling step, not a fixed pooling operator.",
+          "A residual block then refines features before the next descent."
+        ]
+      },
+      "unet-e3": {
+        title: "Encoder level 3",
+        summary: "The encoder continues compressing space while expanding channel capacity.",
+        bullets: [
+          "At this scale the model can reason about larger field structure more efficiently than the flat CNN.",
+          "Coarser levels use GroupNorm instead of InstanceNorm in the implementation.",
+          "That norm change reflects different statistical behavior at different scales."
+        ]
+      },
+      "unet-e4": {
+        title: "Encoder level 4",
+        summary: "This is the last encoder stage before the bottleneck.",
+        bullets: [
+          "The feature map is much coarser, so each unit summarizes a broad spatial region.",
+          "The skip saved here is especially useful for reconstructing medium-coarse structure in the decoder.",
+          "This level is part of what the flat CNN tries to mimic with dilation."
+        ]
+      },
+      "unet-s1": {
+        title: "Skip connection 1",
+        summary: "This skip preserves the finest-resolution features so the decoder does not need to recreate them from a compressed bottleneck.",
+        bullets: [
+          "Skip paths are the defining difference between a U-Net and a plain encoder-decoder.",
+          "They help with precise localization and reconstruction.",
+          "For oscillatory PDE fields, that can matter a lot."
+        ]
+      },
+      "unet-s2": {
+        title: "Skip connection 2",
+        summary: "This skip carries medium-scale detail from the 256 x 256 stage into the matching decoder stage.",
+        bullets: [
+          "It gives the decoder direct access to sharper information than the bottleneck alone can store.",
+          "That reduces pressure on the coarse code to preserve everything.",
+          "In practice, this often improves stability and detail."
+        ]
+      },
+      "unet-s3": {
+        title: "Skip connection 3",
+        summary: "This skip relays coarse-to-medium structure that would otherwise need to be relearned on the way back up.",
+        bullets: [
+          "It is helpful for maintaining wavefront organization and interference geometry.",
+          "The decoder can combine this with the bottleneck's global context.",
+          "That is the classic U-Net blend of localization and semantics."
+        ]
+      },
+      "unet-s4": {
+        title: "Skip connection 4",
+        summary: "The deepest skip still matters because it passes structured pre-bottleneck information into the first decoder merge.",
+        bullets: [
+          "This is often where coarse geometric consistency is recovered fastest.",
+          "The merge step concatenates upsampled bottleneck features with this skip.",
+          "A 1 x 1 merge convolution then compresses the concatenated channels."
+        ]
+      },
+      "unet-bottleneck": {
+        title: "Bottleneck",
+        summary: "The bottleneck is where the U-Net has the broadest effective spatial context at the lowest resolution.",
+        bullets: [
+          "In the implementation it is a residual block at the coarsest level.",
+          "This is where global relationships are cheapest to model.",
+          "The decoder then lifts that global information back to full resolution."
+        ]
+      },
+      "unet-d4": {
+        title: "Decoder stage D4",
+        summary: "The decoder upsamples, concatenates with the deepest skip, merges channels, then refines with a residual block.",
+        bullets: [
+          "Upsampling is bilinear followed by a 1 x 1 channel projection.",
+          "The merge step explicitly fuses coarse global context with saved encoder detail.",
+          "This pattern repeats at every decoder level."
+        ]
+      },
+      "unet-d3": {
+        title: "Decoder stage D3",
+        summary: "This stage reconstructs mid-level structure using both coarse context and the corresponding skip features.",
+        bullets: [
+          "The U-Net can recover structure progressively instead of in one leap.",
+          "That often makes it easier to model multiscale operators than a purely flat network.",
+          "It is also one reason U-Nets can be more parameter-efficient for some tasks."
+        ]
+      },
+      "unet-d2": {
+        title: "Decoder stage D2",
+        summary: "As resolution rises, the decoder reintroduces more local detail while keeping global context from the bottleneck path.",
+        bullets: [
+          "The skip prevents detail from becoming washed out.",
+          "The residual block helps stabilize refinement after concatenation.",
+          "For Helmholtz transfer, this may help preserve local oscillations and source signatures."
+        ]
+      },
+      "unet-d1": {
+        title: "Decoder stage D1",
+        summary: "The last decoder stage reconstructs full-resolution features before the final output projection.",
+        bullets: [
+          "This is the final chance to combine multiscale information before reading out u_high.",
+          "The decoder now has access to both the bottleneck pathway and the finest skip.",
+          "If detail matters, this is where the U-Net has a structural advantage over a flat CNN."
+        ]
+      },
+      "unet-head": {
+        title: "U-Net output head",
+        summary: "A final 1 x 1 linear convolution produces the two output channels.",
+        bullets: [
+          "Like the CNN head, this stage is small and mostly readout.",
+          "Most of the architectural difference lies in encoder-decoder geometry, not the final projection.",
+          "That makes comparison of results easier to interpret."
+        ]
+      }
+    };
+
+    const diagrams = {
+      cnn: {
+        title: "Dilated CNN for frequency transfer",
+        subtitle: "A flat model that expands receptive field through dilation instead of pooling."
+      },
+      unet: {
+        title: "ResU-Net for frequency transfer",
+        subtitle: "A multiscale model with skip connections, residual blocks, and explicit coarse-to-fine reconstruction."
+      }
+    };
+
+    const tabButtons = document.querySelectorAll(".tab-btn");
+    const diagramPanels = document.querySelectorAll(".diagram");
+    const diagramTitle = document.getElementById("diagramTitle");
+    const diagramSubtitle = document.getElementById("diagramSubtitle");
+    const detailTitle = document.getElementById("detailTitle");
+    const detailSummary = document.getElementById("detailSummary");
+    const detailBullets = document.getElementById("detailBullets");
+
+    function renderDetail(key) {
+      const info = infoMap[key];
+      if (!info) return;
+      detailTitle.textContent = info.title;
+      detailSummary.textContent = info.summary;
+      detailBullets.innerHTML = info.bullets.map(item => "<li>" + item + "</li>").join("");
+    }
+
+    function activateDiagram(name) {
+      tabButtons.forEach(btn => btn.classList.toggle("active", btn.dataset.diagram === name));
+      diagramPanels.forEach(panel => panel.classList.toggle("active", panel.id === "diagram-" + name));
+      diagramTitle.textContent = diagrams[name].title;
+      diagramSubtitle.textContent = diagrams[name].subtitle;
+
+      const activePanel = document.getElementById("diagram-" + name);
+      const firstNode = activePanel.querySelector(".diagram-node");
+      activePanel.querySelectorAll(".diagram-node").forEach(node => node.classList.remove("active"));
+      if (firstNode) {
+        firstNode.classList.add("active");
+        renderDetail(firstNode.dataset.info);
+      }
+    }
+
+    tabButtons.forEach(btn => {
+      btn.addEventListener("click", () => activateDiagram(btn.dataset.diagram));
+    });
+
+    document.querySelectorAll(".diagram-node").forEach(node => {
+      node.addEventListener("click", () => {
+        const panel = node.closest(".diagram");
+        if (panel) {
+          panel.querySelectorAll(".diagram-node").forEach(n => n.classList.remove("active"));
+        }
+        node.classList.add("active");
+        renderDetail(node.dataset.info);
+      });
+    });
+
+    const stepContent = {
+      s1: {
+        title: "1. Start from the residual",
+        subtitle: "FGMRES normalizes the current residual and uses it as the next basis vector v_j.",
+        active: "r",
+        calloutTitle: "What to remember",
+        calloutText: "The algorithm always starts from what is still wrong in the current iterate.",
+        bullets: [
+          "The residual determines the next useful search direction.",
+          "Normalizing it gives the next Arnoldi basis vector v_j.",
+          "At this point, nothing has been preconditioned yet."
+        ]
+      },
+      s2: {
+        title: "2. Apply the current preconditioner",
+        subtitle: "FGMRES computes z_j = M_j^{-1} v_j and keeps that vector explicitly.",
+        active: "m",
+        calloutTitle: "Why this is the flexible part",
+        calloutText: "Standard GMRES assumes one fixed right-preconditioner. FGMRES is designed for the case where the actual preconditioned vector may vary from one step to the next.",
+        bullets: [
+          "In your pipeline, one preconditioner apply is itself a multi-stage algorithm.",
+          "That makes it safer to use an outer method that stores the actual corrected vectors z_j.",
+          "If the effective preconditioner changes or behaves nonlinearly, FGMRES still has a mathematically coherent update."
+        ]
+      },
+      s3: {
+        title: "3. Push the correction through A_H",
+        subtitle: "The solver then evaluates w = A_H z_j.",
+        active: "a",
+        calloutTitle: "Why apply A_H after preconditioning?",
+        calloutText: "GMRES builds a basis for the action of the operator on the search space, not just a list of guesses.",
+        bullets: [
+          "z_j is the candidate correction direction after preconditioning.",
+          "w = A_H z_j tells the solver what that correction does to the high-frequency equation.",
+          "This is the vector that gets orthogonalized into the Krylov basis."
+        ]
+      },
+      s4: {
+        title: "4. Orthogonalize and expand the basis",
+        subtitle: "Arnoldi removes components along the previous basis vectors and records the coefficients in a small Hessenberg matrix.",
+        active: "h",
+        calloutTitle: "What Arnoldi is doing",
+        calloutText: "Arnoldi is just a disciplined way to keep the basis numerically stable and non-redundant.",
+        bullets: [
+          "Without orthogonalization, new directions would quickly become nearly duplicates of old ones.",
+          "The Hessenberg coefficients summarize how the new direction relates to the old basis.",
+          "That small matrix is what the later least-squares solve uses."
+        ]
+      },
+      s5: {
+        title: "5. Solve a small least-squares problem",
+        subtitle: "FGMRES chooses coefficients y that minimize the residual over the current subspace.",
+        active: "y",
+        calloutTitle: "Why GMRES is powerful",
+        calloutText: "It does not commit to one direction at a time. It picks the best combination of all collected directions so far.",
+        bullets: [
+          "The minimization happens in a low-dimensional projected problem.",
+          "That is computationally cheap compared with operating on the full PDE system.",
+          "The resulting y coefficients tell us how much of each stored correction vector to use."
+        ]
+      },
+      s6: {
+        title: "6. Update x using the stored preconditioned vectors",
+        subtitle: "The solution update is x = x_0 + sum_i y_i z_i, not x = x_0 + sum_i y_i v_i.",
+        active: "x",
+        calloutTitle: "The key conceptual difference",
+        calloutText: "This is the line that usually makes FGMRES click: the final correction is built from the preconditioned vectors z_i because those are the actual correction directions.",
+        bullets: [
+          "GMRES uses the Krylov basis vectors to manage the subspace.",
+          "FGMRES uses the stored z_i vectors to form the actual iterate update.",
+          "That is exactly why it remains valid when the preconditioner is not one fixed linear operator."
+        ]
+      }
+    };
+
+    const stepButtons = document.querySelectorAll(".step-btn");
+    const stepTitle = document.getElementById("stepTitle");
+    const stepSubtitle = document.getElementById("stepSubtitle");
+    const stepCalloutTitle = document.getElementById("stepCalloutTitle");
+    const stepCalloutText = document.getElementById("stepCalloutText");
+    const stepBullets = document.getElementById("stepBullets");
+    const gmNodes = document.querySelectorAll(".gm-node");
+
+    function activateStep(stepId) {
+      const data = stepContent[stepId];
+      if (!data) return;
+      stepButtons.forEach(btn => btn.classList.toggle("active", btn.dataset.step === stepId));
+      gmNodes.forEach(node => node.classList.toggle("active", node.dataset.stepNode === data.active));
+      stepTitle.textContent = data.title;
+      stepSubtitle.innerHTML = data.subtitle;
+      stepCalloutTitle.textContent = data.calloutTitle;
+      stepCalloutText.textContent = data.calloutText;
+      stepBullets.innerHTML = data.bullets.map(item => "<li>" + item + "</li>").join("");
+    }
+
+    stepButtons.forEach(btn => {
+      btn.addEventListener("click", () => activateStep(btn.dataset.step));
+    });
+
+    activateDiagram("cnn");
+    activateStep("s1");
+  </script>
+</body>
 </html>

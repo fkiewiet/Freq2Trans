@@ -1,0 +1,33 @@
+{
+  "n_problems": 1999,
+  "n_bad_files": 1,
+  "bad_files": [
+    {
+      "path": "experiments/codex/runs/dataset_20260406_16_32_N2000/omega16_dataset/problems/omega_016/problem_01414.npz",
+      "error": "File is not a zip file"
+    }
+  ],
+  "rr_last": {
+    "mean": 3.1768511030894784e-09,
+    "median": 4.486186089280864e-09,
+    "min": 9.865914508966345e-12,
+    "max": 4.8119317419548224e-09,
+    "pct_below": {
+      "0.0001": 1.0,
+      "1e-06": 1.0,
+      "1e-08": 1.0,
+      "1e-10": 0.2926463231615808
+    }
+  },
+  "sources": {
+    "mean": 4.486743371685843,
+    "min": 3,
+    "max": 6
+  },
+  "rr_stage2": {
+    "mean": 5.0269108150213966e-05,
+    "median": 7.04245685483329e-05,
+    "min": 1.4120574860498891e-06,
+    "max": 7.10865278961137e-05
+  }
+}

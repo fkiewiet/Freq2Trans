@@ -1,0 +1,12 @@
+{
+  "16": {
+    "pass": true,
+    "reason": "20/20 problems generated",
+    "dataset_dir": "/math/home/fkiewiet/Freq2Transfer/experiments/codex/runs/hour_run_20260406_135239/omega16_dataset"
+  },
+  "32": {
+    "pass": true,
+    "reason": "20/20 problems generated",
+    "dataset_dir": "/math/home/fkiewiet/Freq2Transfer/experiments/codex/runs/hour_run_20260406_135239/omega32_dataset"
+  }
+}

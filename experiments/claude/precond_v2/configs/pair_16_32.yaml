@@ -1,0 +1,28 @@
+# precond_v2 config — frequency pair 16→32
+# Used for both T_up (up direction) and T_down (down direction).
+#   T_up:   input omega = 16,  target omega = 32  → uses up_N9600_seed42, pair_idx=0
+#   T_down: input omega = 32,  target omega = 16  → uses down_N9600_seed42, pair_idx=0
+
+pair:     [16, 32]
+pair_idx: 0
+
+outdir: experiments/claude/precond_v2/runs
+
+datasets:
+  up_dir:   experiments/claude/datasets/up_N9600_seed42
+  down_dir: experiments/claude/datasets/down_N9600_seed42
+  n_train:  8000   # out of 9600 per pair
+  n_val:    1600
+
+model:
+  base_ch: 32
+  levels:  4      # 32→64→128→256 channels; bottleneck at 32×32
+
+training:
+  epochs:              500
+  batch_size:          4
+  lr:                  1.0e-3
+  lr_patience:         20    # ReduceLROnPlateau: halve lr after N epochs without improvement
+  lr_factor:           0.5
+  early_stop_patience: 60    # stop if no val improvement for 60 epochs
+  num_workers:         0

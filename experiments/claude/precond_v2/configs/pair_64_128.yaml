@@ -1,0 +1,27 @@
+# precond_v2 config — frequency pair 64→128
+#   T_up:   input omega = 64,  target omega = 128  → uses up_N9600_seed42, pair_idx=2
+#   T_down: input omega = 128, target omega = 64   → uses down_N9600_seed42, pair_idx=2
+
+pair:     [64, 128]
+pair_idx: 2
+
+outdir: experiments/claude/precond_v2/runs
+
+datasets:
+  up_dir:   experiments/claude/datasets/up_N9600_seed42
+  down_dir: experiments/claude/datasets/down_N9600_seed42
+  n_train:  8000
+  n_val:    1600
+
+model:
+  base_ch: 32
+  levels:  4
+
+training:
+  epochs:              500
+  batch_size:          4
+  lr:                  1.0e-3
+  lr_patience:         20
+  lr_factor:           0.5
+  early_stop_patience: 60
+  num_workers:         0

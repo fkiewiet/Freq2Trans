@@ -1,0 +1,29 @@
+pair:     [32, 64]
+pair_idx: 1
+
+outdir: /orcd/scratch/orcd/006/fkiewiet/freq2transfer/precond_v3_runs
+
+datasets:
+  up_dir:   experiments/claude/datasets/up_N9600_seed42
+  down_dir: experiments/claude/datasets/down_N9600_seed42
+
+split:
+  n_train: 7000
+  n_val:   1300
+  n_test:  1300
+  seed:    42
+
+model:
+  base_ch: 32
+  levels:  4
+
+training:
+  epochs:              500
+  batch_size:          4
+  lr:                  3.0e-4
+  weight_decay:        1.0e-4
+  lr_patience:         20
+  lr_factor:           0.5
+  lr_threshold:        1.0e-4
+  early_stop_patience: 60
+  num_workers:         0

@@ -1,0 +1,50 @@
+{
+  "64": {
+    "pass": false,
+    "reason": "best damping=0.0001, step1=1.0009e+00, final=1.0356e+00, improves_fraction=0.00",
+    "direct": {
+      "pass": false,
+      "reason": "best damping=0.0001, step1=1.0009e+00, final=1.0356e+00, improves_fraction=0.00",
+      "best_damping": 0.0001,
+      "gate_step": 1,
+      "gate_value": 1.0009193420410156,
+      "final_value": 1.0356230735778809,
+      "improves_fraction": 0.0,
+      "eval_dir": "experiments/codex/runs/overnight_20260407_64_128_stage0_N9600/omega64_eval_damp_0p0001"
+    },
+    "fgmres": {
+      "pass": true,
+      "reason": "best damping=0.0001, step1=1.0000e+00, final=9.6517e-01, improves_fraction=1.00",
+      "best_damping": 0.0001,
+      "gate_step": 1,
+      "gate_value": 0.9999974370002747,
+      "final_value": 0.9651684165000916,
+      "improves_fraction": 1.0,
+      "eval_dir": "experiments/codex/runs/overnight_20260407_64_128_stage0_N9600/omega64_eval_damp_0p0001"
+    }
+  },
+  "128": {
+    "pass": false,
+    "reason": "best damping=0.0001, step1=6.1906e+00, final=3.6611e+01, improves_fraction=0.00",
+    "direct": {
+      "pass": false,
+      "reason": "best damping=0.0001, step1=6.1906e+00, final=3.6611e+01, improves_fraction=0.00",
+      "best_damping": 0.0001,
+      "gate_step": 1,
+      "gate_value": 6.190600872039795,
+      "final_value": 36.61148452758789,
+      "improves_fraction": 0.0,
+      "eval_dir": "experiments/codex/runs/overnight_20260407_64_128_stage0_N9600/omega128_eval_damp_0p0001"
+    },
+    "fgmres": {
+      "pass": false,
+      "reason": "best damping=0.0001, step1=1.0000e+00, final=1.0000e+00, improves_fraction=0.00",
+      "best_damping": 0.0001,
+      "gate_step": 1,
+      "gate_value": 1.0,
+      "final_value": 0.9999999403953552,
+      "improves_fraction": 0.0,
+      "eval_dir": "experiments/codex/runs/overnight_20260407_64_128_stage0_N9600/omega128_eval_damp_0p0001"
+    }
+  }
+}

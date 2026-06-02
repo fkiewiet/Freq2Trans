@@ -1,0 +1,22 @@
+{
+  "dataset_dir": "experiments/codex/runs/smoke_dataset",
+  "run_dir": "experiments/codex/runs/smoke_train_complex",
+  "epochs": 2,
+  "batch_size": 1,
+  "lr": 0.001,
+  "weight_decay": 1e-06,
+  "width": 32,
+  "depth": 6,
+  "seed": 42,
+  "val_fraction": 0.2,
+  "num_workers": 0,
+  "add_pml": false,
+  "add_omega": false,
+  "device": "cpu",
+  "plot_every": 1,
+  "train_problems": 1,
+  "val_problems": 1,
+  "train_samples": 3,
+  "val_samples": 3,
+  "in_channels": 2
+}

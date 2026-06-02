@@ -1,0 +1,12 @@
+{
+  "16": {
+    "pass": true,
+    "reason": "inspection summary present with 20 problems",
+    "inspection_dir": "/math/home/fkiewiet/Freq2Transfer/experiments/codex/runs/hour_run_20260406_135239/omega16_dataset/inspection"
+  },
+  "32": {
+    "pass": true,
+    "reason": "inspection summary present with 20 problems",
+    "inspection_dir": "/math/home/fkiewiet/Freq2Transfer/experiments/codex/runs/hour_run_20260406_135239/omega32_dataset/inspection"
+  }
+}

@@ -1,0 +1,121 @@
+{
+  "config": {
+    "omegas": [
+      64,
+      128
+    ],
+    "gpu_map": {
+      "64": "6",
+      "128": "7"
+    },
+    "skip_generate": true,
+    "dataset_map": {
+      "64": "experiments/codex/runs/dataset_20260406_64_N9600/omega64_dataset",
+      "128": "experiments/codex/runs/dataset_20260406_128_N9600/omega128_dataset"
+    },
+    "n_problems": 20,
+    "gmres_iters": 4,
+    "save_stages": "0,1,2,4",
+    "epochs": 12,
+    "batch_size": 1,
+    "max_stage": 0,
+    "eval_steps": 6,
+    "eval_gate_step": 1,
+    "dampings": [
+      0.0001,
+      0.0003,
+      0.001,
+      0.003,
+      0.01
+    ]
+  },
+  "gates": {
+    "generate": {
+      "64": {
+        "pass": true,
+        "reason": "reused existing dataset with 9600 problems",
+        "dataset_dir": "experiments/codex/runs/dataset_20260406_64_N9600/omega64_dataset"
+      },
+      "128": {
+        "pass": true,
+        "reason": "reused existing dataset with 9600 problems",
+        "dataset_dir": "experiments/codex/runs/dataset_20260406_128_N9600/omega128_dataset"
+      }
+    },
+    "inspect": {
+      "64": {
+        "pass": true,
+        "reason": "inspection summary present with 9600 problems",
+        "inspection_dir": "experiments/codex/runs/dataset_20260406_64_N9600/omega64_dataset/inspection"
+      },
+      "128": {
+        "pass": true,
+        "reason": "inspection summary present with 9600 problems",
+        "inspection_dir": "experiments/codex/runs/dataset_20260406_128_N9600/omega128_dataset/inspection"
+      }
+    },
+    "train": {
+      "64": {
+        "pass": true,
+        "reason": "first val_loss=8.8730e+01, best val_loss=5.1097e+00",
+        "train_dir": "experiments/codex/runs/overnight_20260407_64_128_stage0_N9600_g67/omega64_train"
+      },
+      "128": {
+        "pass": true,
+        "reason": "first val_loss=5.0532e+02, best val_loss=1.5972e+01",
+        "train_dir": "experiments/codex/runs/overnight_20260407_64_128_stage0_N9600_g67/omega128_train"
+      }
+    },
+    "eval": {
+      "64": {
+        "pass": false,
+        "reason": "best damping=0.0001, step1=1.0008e+00, final=1.0305e+00, improves_fraction=0.00",
+        "direct": {
+          "pass": false,
+          "reason": "best damping=0.0001, step1=1.0008e+00, final=1.0305e+00, improves_fraction=0.00",
+          "best_damping": 0.0001,
+          "gate_step": 1,
+          "gate_value": 1.0007708072662354,
+          "final_value": 1.0304914712905884,
+          "improves_fraction": 0.0,
+          "eval_dir": "experiments/codex/runs/overnight_20260407_64_128_stage0_N9600_g67/omega64_eval_damp_0p0001"
+        },
+        "fgmres": {
+          "pass": true,
+          "reason": "best damping=0.0001, step1=1.0000e+00, final=9.7934e-01, improves_fraction=1.00",
+          "best_damping": 0.0001,
+          "gate_step": 1,
+          "gate_value": 0.9999969601631165,
+          "final_value": 0.9793434143066406,
+          "improves_fraction": 1.0,
+          "eval_dir": "experiments/codex/runs/overnight_20260407_64_128_stage0_N9600_g67/omega64_eval_damp_0p0001"
+        }
+      },
+      "128": {
+        "pass": false,
+        "reason": "best damping=0.0001, step1=1.1081e+00, final=3.0010e+00, improves_fraction=0.00",
+        "direct": {
+          "pass": false,
+          "reason": "best damping=0.0001, step1=1.1081e+00, final=3.0010e+00, improves_fraction=0.00",
+          "best_damping": 0.0001,
+          "gate_step": 1,
+          "gate_value": 1.1080552339553833,
+          "final_value": 3.000976800918579,
+          "improves_fraction": 0.0,
+          "eval_dir": "experiments/codex/runs/overnight_20260407_64_128_stage0_N9600_g67/omega128_eval_damp_0p0001"
+        },
+        "fgmres": {
+          "pass": false,
+          "reason": "best damping=0.0001, step1=1.0000e+00, final=1.0000e+00, improves_fraction=0.00",
+          "best_damping": 0.0001,
+          "gate_step": 1,
+          "gate_value": 1.0,
+          "final_value": 0.9999969601631165,
+          "improves_fraction": 0.0,
+          "eval_dir": "experiments/codex/runs/overnight_20260407_64_128_stage0_N9600_g67/omega128_eval_damp_0p0001"
+        }
+      }
+    }
+  },
+  "overall_pass": false
+}

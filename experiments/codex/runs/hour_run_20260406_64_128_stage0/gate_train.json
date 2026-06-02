@@ -1,0 +1,12 @@
+{
+  "64": {
+    "pass": true,
+    "reason": "first val_loss=8.3257e+02, best val_loss=5.0708e+02",
+    "train_dir": "experiments/codex/runs/hour_run_20260406_64_128_stage0/omega64_train"
+  },
+  "128": {
+    "pass": true,
+    "reason": "first val_loss=8.1691e+02, best val_loss=4.6777e+02",
+    "train_dir": "experiments/codex/runs/hour_run_20260406_64_128_stage0/omega128_train"
+  }
+}

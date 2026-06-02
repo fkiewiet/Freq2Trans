@@ -1,0 +1,14 @@
+{
+  "16": {
+    "pass": false,
+    "reason": "best damping=0.01, step1=1.6908e+00, final=1.2064e+01",
+    "best_damping": 0.01,
+    "eval_dir": "/math/home/fkiewiet/Freq2Transfer/experiments/codex/runs/hour_run_20260406_135239/omega16_eval_damp_0p01"
+  },
+  "32": {
+    "pass": false,
+    "reason": "best damping=0.01, step1=4.6638e+00, final=2.1878e+01",
+    "best_damping": 0.01,
+    "eval_dir": "/math/home/fkiewiet/Freq2Transfer/experiments/codex/runs/hour_run_20260406_135239/omega32_eval_damp_0p01"
+  }
+}

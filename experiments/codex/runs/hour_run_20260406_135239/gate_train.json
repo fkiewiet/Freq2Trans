@@ -1,0 +1,12 @@
+{
+  "16": {
+    "pass": true,
+    "reason": "first val_loss=3.0431e+03, best val_loss=4.2866e+02",
+    "train_dir": "/math/home/fkiewiet/Freq2Transfer/experiments/codex/runs/hour_run_20260406_135239/omega16_train"
+  },
+  "32": {
+    "pass": true,
+    "reason": "first val_loss=3.6277e+03, best val_loss=2.2570e+02",
+    "train_dir": "/math/home/fkiewiet/Freq2Transfer/experiments/codex/runs/hour_run_20260406_135239/omega32_train"
+  }
+}

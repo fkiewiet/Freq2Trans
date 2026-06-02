@@ -83,9 +83,9 @@ class HelmholtzSolver:
         return sigma
 
     def _s(self, idx: np.ndarray) -> np.ndarray:
-        """Complex PML stretching function s(x) = 1 + i·η at grid indices."""
+        """Complex PML stretching function s(x) = 1 + i·σ/ω at grid indices."""
         sigma = self._sigma[idx]
-        return 1.0 + 1j * sigma
+        return 1.0 + 1j * sigma / self.omega
 
     # ------------------------------------------------------------------
     # Operator assembly

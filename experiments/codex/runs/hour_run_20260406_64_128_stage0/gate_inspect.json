@@ -1,0 +1,12 @@
+{
+  "64": {
+    "pass": true,
+    "reason": "inspection summary present with 2000 problems",
+    "inspection_dir": "experiments/codex/runs/dataset_20260406_64_128_N2000/omega64_dataset/inspection"
+  },
+  "128": {
+    "pass": true,
+    "reason": "inspection summary present with 2000 problems",
+    "inspection_dir": "experiments/codex/runs/dataset_20260406_64_128_N2000/omega128_dataset/inspection"
+  }
+}

@@ -1,0 +1,27 @@
+{
+  "kind": "codex_residual_dataset",
+  "grid_n": 512,
+  "n_pml": 112,
+  "interior_n": 288,
+  "omegas": [
+    32
+  ],
+  "sigma0_map": {
+    "16": 42.5,
+    "32": 85.0,
+    "64": 120.0,
+    "128": 180.0
+  },
+  "n_problems_per_omega": 2000,
+  "gmres_iters": 4,
+  "save_stages": [
+    0,
+    1,
+    2,
+    4
+  ],
+  "seed": 42,
+  "source_sigma": 2.0,
+  "min_sources": 3,
+  "max_sources": 6
+}

@@ -85,9 +85,13 @@ OMEGA_MIN, OMEGA_MAX = 16.0, 128.0
 ETA_MIN,  ETA_MAX    = 42.5, 180.0
 
 # GMRES parameters
+# restart × maxiter = total Krylov steps budget
+# For N=262k (512×512), keep restart small (each step orthogonalizes against restart vectors)
 FGMRES_TOL     = 1e-4
-FGMRES_RESTART = 50
-FGMRES_MAXITER = 3000
+FGMRES_RESTART = 10
+FGMRES_MAXITER = 20    # 20 restarts × 10 steps = 200 total Krylov steps max
+# E (neural) costs ~6s/step on CPU; 200 steps worst-case = 1200s.
+N_PROBLEMS     = 1     # number of test RHS problems to benchmark
 
 # CSL shift parameter (standard: 0.5 gives good spectral separation)
 CSL_BETA = 0.5
@@ -284,7 +288,18 @@ class ILUPreconditioner:
     label = "C: ILU(0)"
 
     def __init__(self, A, fill_factor: int = 10):
-        self.ilu   = spla.spilu(A, fill_factor=fill_factor)
+        # Helmholtz at high ω is indefinite; try increasingly large diagonal shifts
+        import scipy.sparse as sp
+        last_err = None
+        for shift_mag in [0.0, 1e-6, 1e-4, 1e-2, 0.1, 1.0]:
+            try:
+                B = A if shift_mag == 0.0 else A + shift_mag * sp.eye(A.shape[0], dtype=A.dtype, format="csc")
+                self.ilu = spla.spilu(B, fill_factor=fill_factor)
+                break
+            except RuntimeError as e:
+                last_err = e
+        else:
+            raise RuntimeError(f"ILU failed with all shifts: {last_err}") from last_err
         self.calls = 0; self.times = []
 
     def apply(self, v: np.ndarray) -> np.ndarray:
@@ -297,31 +312,30 @@ class ILUPreconditioner:
 
 class CSLPreconditioner:
     """
-    D: Complex Shifted Laplacian (CSL).
+    D: Complex Shifted Laplacian (CSL) + ILU.
 
     A_csl = A_H − i·β·k_H²·I
     where β = CSL_BETA (default 0.5).
 
-    The imaginary shift moves the spectrum away from the origin,
-    making A_csl non-indefinite and easier to factor.
-    A_csl is factored once with full LU; each application is A_csl⁻¹ v.
+    The imaginary shift moves the spectrum away from the origin.
+    We apply ILU(fill) to A_csl — full splu is intractable at 512×512.
 
     This is the standard reference preconditioner for Helmholtz problems
     (Erlangga, Vuik, Oosterlee, 2004).
     """
-    label = f"D: CSL (β={CSL_BETA})"
+    label = f"D: CSL+ILU (β={CSL_BETA})"
 
-    def __init__(self, A_H, omega_H: float, c: float = 1.0):
+    def __init__(self, A_H, omega_H: float, c: float = 1.0, fill_factor: int = 10):
         k_H     = omega_H / c
         shift   = -1j * CSL_BETA * k_H**2
         A_csl   = A_H + shift * sp.eye(N2, format="csc", dtype=complex)
-        self.lu = spla.splu(A_csl)
+        self.ilu = spla.spilu(A_csl, fill_factor=fill_factor)
         self.calls = 0; self.times = []
 
     def apply(self, v: np.ndarray) -> np.ndarray:
         t0 = time.perf_counter()
         self.calls += 1
-        out = self.lu.solve(v)
+        out = self.ilu.solve(v)
         self.times.append(time.perf_counter() - t0)
         return out
 
@@ -340,9 +354,10 @@ class NeuralPreconditionerInterior:
     """
     label = "E: Neural FGMRES (interior restrict)"
 
-    def __init__(self, t_down, t_up, lu_L, omega_l, omega_h):
-        self.t_down  = t_down
-        self.t_up    = t_up
+    def __init__(self, t_down, t_up, lu_L, omega_l, omega_h, device="cpu"):
+        self.device  = torch.device(device)
+        self.t_down  = t_down.to(self.device)
+        self.t_up    = t_up.to(self.device)
         self.lu_L    = lu_L
         self.omega_l = omega_l
         self.omega_h = omega_h
@@ -356,7 +371,7 @@ class NeuralPreconditionerInterior:
 
         inp_H, rms_H = build_input_interior(r_int, self.omega_h)
         with torch.no_grad():
-            out_down = self.t_down(inp_H)
+            out_down = self.t_down(inp_H.to(self.device)).cpu()
         w_L_int = (out_down[0, 0].numpy() * rms_H
                    + 1j * out_down[0, 1].numpy() * rms_H)
 
@@ -368,7 +383,7 @@ class NeuralPreconditionerInterior:
 
         inp_L, rms_L = build_input_interior(z_L_int, self.omega_l)
         with torch.no_grad():
-            out_up = self.t_up(inp_L)
+            out_up = self.t_up(inp_L.to(self.device)).cpu()
         w_H_int = (out_up[0, 0].numpy() * rms_L
                    + 1j * out_up[0, 1].numpy() * rms_L)
 
@@ -401,17 +416,19 @@ def generate_test_problems(n_problems=5, seed=12345):
 # ── single solver runner ─────────────────────────────────────────────────────────
 
 def run_solver(A_H, b, precond_obj, label):
+    import warnings
     residuals = []
     M_lin = None if precond_obj is None else spla.LinearOperator(
         (N2, N2), matvec=precond_obj.apply, dtype=complex
     )
     t0 = time.time()
-    x, flag = fgmres(A_H, b,
-                     tol=FGMRES_TOL,
-                     restrt=FGMRES_RESTART,
-                     maxiter=FGMRES_MAXITER,
-                     M=M_lin,
-                     residuals=residuals)
+    with np.errstate(over="ignore", invalid="ignore", divide="ignore"):
+        x, flag = fgmres(A_H, b,
+                         tol=FGMRES_TOL,
+                         restart=FGMRES_RESTART,
+                         maxiter=FGMRES_MAXITER,
+                         M=M_lin,
+                         residuals=residuals)
     elapsed = time.time() - t0
     return dict(
         label=label,
@@ -440,10 +457,13 @@ def main():
                         help="T_up checkpoint. Default: golden weights (dilated CNN).")
     parser.add_argument("--outdir", type=str, default=None,
                         help="Output directory. Default: results_transfer/precond_gmres_v5_{OL}_{OH}/")
+    parser.add_argument("--device", type=str, default="cpu",
+                        help="Device for CNN inference, e.g. cuda:4 (default: cpu)")
     args = parser.parse_args()
 
     OMEGA_L   = args.omega_l
     OMEGA_H   = args.omega_h
+    CNN_DEVICE = args.device
     ckpt_down = Path(args.ckpt_down) if args.ckpt_down else CKPT_DOWN_DEFAULT
     ckpt_up   = Path(args.ckpt_up)   if args.ckpt_up   else CKPT_UP_DEFAULT
     if args.outdir:
@@ -484,9 +504,14 @@ def main():
 
     # C: ILU
     t = time.time()
-    prec_C = ILUPreconditioner(A_H, fill_factor=10)
-    setup_times["C"] = time.time() - t
-    print(f"      C ILU(fill=10):   {setup_times['C']:.1f} s")
+    try:
+        prec_C = ILUPreconditioner(A_H, fill_factor=10)
+        setup_times["C"] = time.time() - t
+        print(f"      C ILU(fill=10):   {setup_times['C']:.1f} s")
+    except RuntimeError as e:
+        prec_C = None
+        setup_times["C"] = time.time() - t
+        print(f"      C ILU(fill=10):   SKIP (singular: {e})")
 
     # D: CSL — LU factor of (A_H - i·β·k²·I)
     t = time.time()
@@ -494,12 +519,13 @@ def main():
     setup_times["D"] = time.time() - t
     print(f"      D CSL (β={CSL_BETA}):    {setup_times['D']:.1f} s")
 
-    # E: Neural — LU factor of A_L + load models
+    # E: Neural — ILU factor of A_L + load models
+    # (full splu is intractable at 512×512; ILU is used here as the V-cycle solver)
     t = time.time()
-    lu_L    = spla.splu(A_L)
+    lu_L    = spla.spilu(A_L, fill_factor=10)
     lu_time = time.time() - t
     setup_times["E_lu"] = lu_time
-    print(f"      E A_L LU:         {lu_time:.1f} s")
+    print(f"      E A_L ILU:        {lu_time:.1f} s")
 
     t = time.time()
     t_down, arch_down_str = load_model(ckpt_down)
@@ -507,12 +533,13 @@ def main():
     setup_times["E_cnn"] = time.time() - t
     print(f"      E T_down: {arch_down_str}")
     print(f"      E T_up:   {arch_up_str}")
-    prec_E = NeuralPreconditionerInterior(t_down, t_up, lu_L, OMEGA_L, OMEGA_H)
+    prec_E = NeuralPreconditionerInterior(t_down, t_up, lu_L, OMEGA_L, OMEGA_H,
+                                          device=CNN_DEVICE)
     setup_times["E"] = setup_times["E_lu"] + setup_times["E_cnn"]
 
     # ── 3. Generate test problems ─────────────────────────────────────────
     print(f"\n[3/6] Generating 5 test problems (seed=12345)...")
-    problems = generate_test_problems(n_problems=5, seed=12345)
+    problems = generate_test_problems(n_problems=N_PROBLEMS, seed=12345)
     print(f"      {len(problems)} problems, ω_H={OMEGA_H:.0f} system")
 
     # ── 4. Run solvers ────────────────────────────────────────────────────
@@ -526,7 +553,7 @@ def main():
 
         r_A = run_solver(A_H, b, None,   "A: Unpreconditioned GMRES")
         r_B = run_solver(A_H, b, prec_B, prec_B.label)
-        r_C = run_solver(A_H, b, prec_C, prec_C.label)
+        r_C = run_solver(A_H, b, prec_C, prec_C.label if prec_C else "C: ILU(0) [SKIP]")
         r_D = run_solver(A_H, b, prec_D, prec_D.label)
         r_E = run_solver(A_H, b, prec_E, prec_E.label)
 
@@ -540,7 +567,7 @@ def main():
 
         for key, pc in [("B", prec_B), ("C", prec_C), ("D", prec_D), ("E", prec_E)]:
             n_calls = locals()[f"r_{key}"]["iters"]
-            if pc.times and n_calls > 0:
+            if pc is not None and pc.times and n_calls > 0:
                 avg_ms = np.mean(pc.times[-n_calls:]) * 1000
                 print(f"      avg call time {key}: {avg_ms:.1f} ms")
 
@@ -588,7 +615,7 @@ def main():
 
     # Per-call average times
     for key, pc in [("B", prec_B), ("C", prec_C), ("D", prec_D), ("E", prec_E)]:
-        if pc.times:
+        if pc is not None and pc.times:
             print(f"  Avg call time {key}: {np.mean(pc.times)*1000:.1f} ms  "
                   f"({pc.calls} calls)")
 
@@ -697,7 +724,7 @@ def main():
             key: round(float(np.mean(pc.times)) * 1000, 1)
             for key, pc in [("B", prec_B), ("C", prec_C),
                              ("D", prec_D), ("E", prec_E)]
-            if pc.times
+            if pc is not None and pc.times
         },
         "problems": _clean(all_results),
     }

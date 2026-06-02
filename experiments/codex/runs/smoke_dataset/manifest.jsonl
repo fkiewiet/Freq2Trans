@@ -1,0 +1,2 @@
+{"omega": 16, "problem_idx": 0, "path": "problems/omega_016/problem_00000.npz", "n_sources": 3, "stages": [0, 1, 2], "rel_residuals": [1.0, 0.0009188624680973589, 1.549727016936231e-06]}
+{"omega": 16, "problem_idx": 1, "path": "problems/omega_016/problem_00001.npz", "n_sources": 5, "stages": [0, 1, 2], "rel_residuals": [1.0, 0.0009188624680973589, 1.549727016936231e-06]}

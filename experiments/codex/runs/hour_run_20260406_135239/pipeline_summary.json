@@ -1,0 +1,80 @@
+{
+  "config": {
+    "omegas": [
+      16,
+      32
+    ],
+    "gpu_map": {
+      "16": "2",
+      "32": "6"
+    },
+    "n_problems": 20,
+    "gmres_iters": 4,
+    "save_stages": "0,1,2,4",
+    "epochs": 8,
+    "batch_size": 1,
+    "max_stage": 2,
+    "eval_steps": 6,
+    "dampings": [
+      0.01,
+      0.05,
+      0.1,
+      0.25,
+      0.5,
+      1.0
+    ]
+  },
+  "gates": {
+    "generate": {
+      "16": {
+        "pass": true,
+        "reason": "20/20 problems generated",
+        "dataset_dir": "/math/home/fkiewiet/Freq2Transfer/experiments/codex/runs/hour_run_20260406_135239/omega16_dataset"
+      },
+      "32": {
+        "pass": true,
+        "reason": "20/20 problems generated",
+        "dataset_dir": "/math/home/fkiewiet/Freq2Transfer/experiments/codex/runs/hour_run_20260406_135239/omega32_dataset"
+      }
+    },
+    "inspect": {
+      "16": {
+        "pass": true,
+        "reason": "inspection summary present with 20 problems",
+        "inspection_dir": "/math/home/fkiewiet/Freq2Transfer/experiments/codex/runs/hour_run_20260406_135239/omega16_dataset/inspection"
+      },
+      "32": {
+        "pass": true,
+        "reason": "inspection summary present with 20 problems",
+        "inspection_dir": "/math/home/fkiewiet/Freq2Transfer/experiments/codex/runs/hour_run_20260406_135239/omega32_dataset/inspection"
+      }
+    },
+    "train": {
+      "16": {
+        "pass": true,
+        "reason": "first val_loss=3.0431e+03, best val_loss=4.2866e+02",
+        "train_dir": "/math/home/fkiewiet/Freq2Transfer/experiments/codex/runs/hour_run_20260406_135239/omega16_train"
+      },
+      "32": {
+        "pass": true,
+        "reason": "first val_loss=3.6277e+03, best val_loss=2.2570e+02",
+        "train_dir": "/math/home/fkiewiet/Freq2Transfer/experiments/codex/runs/hour_run_20260406_135239/omega32_train"
+      }
+    },
+    "eval": {
+      "16": {
+        "pass": false,
+        "reason": "best damping=0.01, step1=1.6908e+00, final=1.2064e+01",
+        "best_damping": 0.01,
+        "eval_dir": "/math/home/fkiewiet/Freq2Transfer/experiments/codex/runs/hour_run_20260406_135239/omega16_eval_damp_0p01"
+      },
+      "32": {
+        "pass": false,
+        "reason": "best damping=0.01, step1=4.6638e+00, final=2.1878e+01",
+        "best_damping": 0.01,
+        "eval_dir": "/math/home/fkiewiet/Freq2Transfer/experiments/codex/runs/hour_run_20260406_135239/omega32_eval_damp_0p01"
+      }
+    }
+  },
+  "overall_pass": false
+}

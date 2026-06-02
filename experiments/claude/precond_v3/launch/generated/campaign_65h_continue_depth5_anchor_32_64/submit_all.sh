@@ -1,0 +1,4 @@
+#!/bin/bash
+set -euo pipefail
+
+sbatch experiments/claude/precond_v3/launch/generated/campaign_65h_continue_depth5_anchor_32_64/campaign_65h_continue_depth5_anchor_32_64__depth5_field_verified__32_64.sbatch

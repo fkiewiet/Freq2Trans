@@ -102,6 +102,14 @@ cd ~/Freq2Transfer
 bash experiments/claude/precond_study/launch/07_submit_wave1_baseline_warmstart_eval_all_up.sh
 ```
 
+On ORCD/slurm, the same evaluations can be submitted separately:
+```bash
+cd ~/Freq2Transfer
+sbatch experiments/claude/precond_study/launch/sbatch_eval_warmstart_omega32_unet.sh
+sbatch experiments/claude/precond_study/launch/sbatch_eval_warmstart_omega64_unet.sh
+sbatch experiments/claude/precond_study/launch/sbatch_eval_warmstart_omega128_unet.sh
+```
+
 Recommended interpretation order after baseline runs:
 
 1. Did warm-start metrics improve at all?

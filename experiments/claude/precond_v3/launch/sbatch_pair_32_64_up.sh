@@ -1,11 +1,7 @@
 #!/bin/bash
-SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-ROOT="$(cd "$SCRIPT_DIR/../../../.." && pwd)"
-LOG_DIR="$ROOT/experiments/claude/precond_v3/launch/logs"
-
 #SBATCH --job-name=pcv3_up_32_64
-#SBATCH --output=/math/home/fkiewiet/Freq2Transfer/experiments/claude/precond_v3/launch/logs/pcv3_up_32_64_%j.log
-#SBATCH --error=/math/home/fkiewiet/Freq2Transfer/experiments/claude/precond_v3/launch/logs/pcv3_up_32_64_%j.err
+#SBATCH --output=/home/fkiewiet/Freq2Transfer/experiments/claude/precond_v3/launch/logs/pcv3_up_32_64_%j.log
+#SBATCH --error=/home/fkiewiet/Freq2Transfer/experiments/claude/precond_v3/launch/logs/pcv3_up_32_64_%j.err
 #SBATCH --time=12:00:00
 #SBATCH --partition=sched_mit_hill
 #SBATCH --gres=gpu:1
@@ -13,6 +9,10 @@ LOG_DIR="$ROOT/experiments/claude/precond_v3/launch/logs"
 #SBATCH --mem=64G
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
+
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+ROOT="$(cd "$SCRIPT_DIR/../../../.." && pwd)"
+LOG_DIR="$ROOT/experiments/claude/precond_v3/launch/logs"
 
 set -euo pipefail
 
@@ -34,6 +34,11 @@ echo "host     : $(hostname)"
 echo "cwd      : $(pwd)"
 echo "python   : $(which python3)"
 echo "date     : $(date)"
+echo "partition: ${SLURM_JOB_PARTITION:-unknown}"
+echo "job gpus : ${SLURM_JOB_GPUS:-unset}"
+echo "node gpus: ${SLURM_GPUS_ON_NODE:-unset}"
+echo "step gpus: ${SLURM_STEP_GPUS:-unset}"
+echo "cuda vis : ${CUDA_VISIBLE_DEVICES:-unset}"
 echo "========================================================"
 echo ""
 
@@ -67,7 +72,8 @@ echo "Resolved : $(readlink -f "$DATASET" 2>/dev/null || echo "$DATASET")"
 echo "Run root : $RUN_ROOT"
 echo ""
 
-nvidia-smi --query-gpu=name,memory.total,memory.free --format=csv,noheader || true
+nvidia-smi -L || true
+nvidia-smi --query-gpu=index,name,memory.total,memory.free --format=csv,noheader || true
 echo ""
 
 mkdir -p "$RUN_ROOT"

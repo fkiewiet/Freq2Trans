@@ -125,7 +125,7 @@ def train():
             
             optimizer.zero_grad()
             out = model(x_in)
-            loss = ((out - u_target)**2 * mask).mean()
+            loss = ((out - u_target)**2 * mask).mean()  `       `
             loss.backward(); optimizer.step()
             total_loss += loss.item()
 

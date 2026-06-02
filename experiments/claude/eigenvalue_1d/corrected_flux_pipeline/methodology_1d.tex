@@ -1,0 +1,413 @@
+% ============================================================
+% Methodology appendix/section -- Corrected 1D spectral validation
+% Thesis: Frequency Helmholtz Transfer Operator
+% Author: F.E. Kiewiet de Jonge
+% ============================================================
+%
+% Suggested packages if this file is used standalone:
+%   \usepackage{amsmath, amssymb}
+%   \usepackage{booktabs}
+%   \usepackage{graphicx}
+%   \usepackage{xcolor}
+%
+% This file is written as a thesis-ready methodology section. It can be
+% included as a subsection of the numerical methodology chapter or adapted
+% into an appendix.
+
+\section{One-dimensional spectral validation methodology}
+\label{sec:methodology_1d_spectral}
+
+The two-dimensional Helmholtz systems studied in this thesis are too large for
+a complete eigenvalue decomposition: a $512 \times 512$ grid contains
+$262{,}144$ unknowns before accounting for complex arithmetic. A direct
+eigendecomposition of the full matrix is therefore neither computationally
+practical nor necessary for validating the spectral mechanism of the proposed
+warm start. The one-dimensional problem provides a controlled intermediate
+setting. It preserves the essential ingredients of the numerical method,
+namely an indefinite Helmholtz operator, absorbing boundary layers, a shifted
+Laplacian preconditioner, and a frequency-transfer neural operator, while
+remaining small enough that all eigenvalues and eigenvectors can be computed
+exactly.
+
+The goal of the one-dimensional study is threefold. First, it verifies that
+the eigenvalue computation itself agrees with the analytical Dirichlet
+spectrum. Second, it separates the role of the Perfectly Matched Layer (PML)
+from the physical interior modes. Third, it tests whether the learned
+frequency-transfer operator reduces the components of the initial error that
+are associated with difficult Helmholtz modes, and whether this reduction
+translates into fewer Krylov iterations.
+
+
+% ============================================================
+\subsection{Grid, physical interior, and notation}
+\label{subsec:methodology_1d_grid}
+% ============================================================
+
+The one-dimensional grid contains
+\[
+    N = 512
+\]
+unknowns. The outer
+\[
+    n_{\mathrm{pml}} = 112
+\]
+points on each side form the absorbing layer, leaving
+\[
+    N_{\mathrm{int}} = N - 2 n_{\mathrm{pml}} = 288
+\]
+physical interior unknowns. The frequency set is
+\[
+    \omega \in \{16,32,64,128\}.
+\]
+For the Dirichlet spectral analysis the grid spacing is chosen as
+\[
+    h = \frac{1}{N+1},
+\]
+corresponding to $N$ unknowns between two fixed Dirichlet endpoints outside
+the computational grid. This convention is important because it gives a
+closed-form reference spectrum against which the numerical eigensolver can be
+validated.
+
+The central object is the high-frequency linear system
+\begin{equation}
+    A_H u_H = f,
+    \label{eq:oned_high_frequency_system}
+\end{equation}
+where $A_H = A(\omega_H)$ is the discretized Helmholtz operator at the target
+frequency. A learned transfer operator $T_{\mathrm{up}}$ maps a low-frequency
+solution $u_L$ to an initial guess
+\begin{equation}
+    x_0 = T_{\mathrm{up}}(u_L)
+    \label{eq:oned_warm_start}
+\end{equation}
+for the high-frequency Krylov solve.
+
+
+% ============================================================
+\subsection{Dirichlet reference operator}
+\label{subsec:methodology_1d_dirichlet}
+% ============================================================
+
+Eigenvalue component weighting is performed only for one-dimensional
+Dirichlet problems. This restriction is deliberate. The Dirichlet operator is
+real symmetric, so its eigenvectors form an orthonormal basis. Consequently
+modal coefficients have a direct interpretation as Euclidean projections,
+without the conditioning difficulties that arise for non-normal PML matrices.
+
+The Dirichlet Helmholtz operator is written with the sign convention
+\begin{equation}
+    A_D(\omega) = -\frac{d^2}{dx^2} - \omega^2.
+    \label{eq:oned_dirichlet_continuous}
+\end{equation}
+The second-order finite-difference stencil is
+\begin{equation}
+    (A_D u)_i =
+    -\frac{u_{i-1}-2u_i+u_{i+1}}{h^2} - \omega^2 u_i,
+    \label{eq:oned_dirichlet_stencil}
+\end{equation}
+or equivalently
+\begin{equation}
+    (A_D)_{i,i} = \frac{2}{h^2} - \omega^2,
+    \qquad
+    (A_D)_{i,i\pm1} = -\frac{1}{h^2}.
+    \label{eq:oned_dirichlet_matrix_entries}
+\end{equation}
+For $n$ Dirichlet unknowns, the analytical eigenvalues are
+\begin{equation}
+    \lambda_k
+    =
+    \frac{4}{h^2}
+    \sin^2\!\left(\frac{\pi k}{2(n+1)}\right)
+    - \omega^2,
+    \qquad k=1,\ldots,n.
+    \label{eq:oned_dirichlet_analytic_eigs}
+\end{equation}
+This formula predicts a small low-index negative region followed by a
+predominantly positive spectrum. Reproducing this distribution numerically is
+the first validation step. If the numerical eigenvalues disagree with
+\eqref{eq:oned_dirichlet_analytic_eigs}, then any subsequent spectral
+interpretation is unreliable.
+
+Two Dirichlet bases are used:
+\begin{table}[h]
+\centering
+\begin{tabular}{lll}
+\toprule
+Basis & Size & Purpose \\
+\midrule
+$V_{288}$ & $288$ & Primary physical-interior component weighting \\
+$V_{512}$ & $512$ & Full-grid Dirichlet comparison without PML eigenvectors \\
+\bottomrule
+\end{tabular}
+\caption{Dirichlet eigenvector bases used for one-dimensional component
+weighting. The $288$-point basis is the default because it represents the
+physical interior. The $512$-point basis is included as a full-grid comparison
+that still avoids non-normal PML eigenvectors.}
+\label{tab:oned_dirichlet_bases}
+\end{table}
+
+Both bases are computed with a Hermitian eigensolver. The eigenvectors are
+explicitly normalized so that
+\begin{equation}
+    \|v_k\|_2 = 1
+    \label{eq:oned_unit_eigenvectors}
+\end{equation}
+for every mode. This condition is checked numerically and reported with the
+component-weighting results.
+
+
+% ============================================================
+\subsection{Flux-form PML operator for data generation and GMRES}
+\label{subsec:methodology_1d_flux_pml}
+% ============================================================
+
+The PML is not used as the modal basis for component weighting, but it is used
+in the finite-difference solves and in the GMRES evaluation. This distinction
+is essential. The Krylov method must solve the same full $512$-point problem
+used by the numerical simulator, including the absorbing boundary. However,
+modal coefficient claims should be made in a clean Dirichlet basis.
+
+The PML is introduced by the complex stretch
+\begin{equation}
+    s(x) = 1 + i\frac{\sigma(x)}{\omega}.
+    \label{eq:oned_pml_stretch}
+\end{equation}
+The corrected one-dimensional PML operator is discretized in flux form:
+\begin{equation}
+    A_{\mathrm{PML}} u
+    =
+    -\frac{1}{s}
+    \frac{d}{dx}
+    \left(
+        \frac{1}{s}\frac{du}{dx}
+    \right)
+    - \omega^2 u.
+    \label{eq:oned_flux_pml_operator}
+\end{equation}
+This form is preferred over a row-scaled stencil because it more faithfully
+represents the stretched-coordinate differential operator. The PML damping
+profile is
+\begin{equation}
+    \sigma_i
+    =
+    \sigma_0(\omega)
+    \left(
+        \frac{n_{\mathrm{pml}} - i}{n_{\mathrm{pml}}}
+    \right)^p,
+    \qquad p=2,
+    \label{eq:oned_pml_profile}
+\end{equation}
+inside each absorbing layer and zero in the physical interior. The default
+values are
+\begin{table}[h]
+\centering
+\begin{tabular}{cc}
+\toprule
+$\omega$ & $\sigma_0(\omega)$ \\
+\midrule
+16  & 42.5 \\
+32  & 85.0 \\
+64  & 120.0 \\
+128 & 180.0 \\
+\bottomrule
+\end{tabular}
+\caption{Default PML damping strengths used in the corrected one-dimensional
+flux-PML experiments. Sensitivity analysis varies these values by a scalar
+factor.}
+\label{tab:oned_sigma_values}
+\end{table}
+
+The resulting matrix is complex and non-Hermitian. Its eigenvalues are useful
+as a diagnostic of boundary absorption and non-normality, but its right
+eigenvectors are not used for coefficient weighting. This avoids attributing
+physical meaning to boundary-localized PML modes.
+
+
+% ============================================================
+\subsection{Training variants for the frequency-transfer operator}
+\label{subsec:methodology_1d_training}
+% ============================================================
+
+The learned operator $T_{\mathrm{up}}$ is trained to map a low-frequency
+solution to a high-frequency initial guess,
+\[
+    T_{\mathrm{up}} : u_{\omega_L} \mapsto u_{\omega_H},
+    \qquad \omega_H > \omega_L.
+\]
+The training data consist of random interior Gaussian sources. For each source
+field $f$, the corrected flux-PML systems are solved at $\omega_L$ and
+$\omega_H$. The solution is normalized by the root-mean-square magnitude of
+the low-frequency solution on the physical interior. This prevents PML
+amplitudes from dominating the scaling.
+
+Two training variants are prioritized:
+\begin{table}[h]
+\centering
+\begin{tabular}{llll}
+\toprule
+Variant & Data & Loss region & Inference rule \\
+\midrule
+\texttt{flux\_int} &
+Corrected FD/PML &
+288-point physical interior &
+Zero PML strip \\
+\texttt{flux\_full} &
+Corrected FD/PML &
+Full 512 grid &
+Keep full prediction \\
+\bottomrule
+\end{tabular}
+\caption{Primary one-dimensional training variants. The \texttt{flux\_int}
+variant is the main methodology because it learns from PML-consistent data
+while optimizing the physical interior. The \texttt{flux\_full} variant tests
+whether learning the absorbing layer improves raw iteration counts.}
+\label{tab:oned_training_variants}
+\end{table}
+
+The main thesis interpretation is based on \texttt{flux\_int}. This is the
+cleanest variant: the data are generated by the same full PML solver used in
+evaluation, but the objective function only rewards accuracy in the physical
+domain. The PML entries of the warm start are zeroed before GMRES. This avoids
+injecting spurious boundary-layer structure while still allowing the full PML
+operator to absorb outgoing waves during the solve.
+
+The \texttt{flux\_full} variant is included as a performance comparator. If it
+achieves fewer GMRES iterations, this indicates that learning boundary-layer
+structure can be computationally useful. However, its modal interpretation is
+less clean because part of the network capacity is spent matching the PML
+solution rather than only the physical wave field.
+
+
+% ============================================================
+\subsection{CSL-preconditioned GMRES evaluation}
+\label{subsec:methodology_1d_csl}
+% ============================================================
+
+All warm starts are evaluated by solving the high-frequency PML system
+\eqref{eq:oned_high_frequency_system} with GMRES or flexible GMRES. The
+preconditioner is the complex shifted Laplacian (CSL)
+\begin{equation}
+    M_{\mathrm{CSL}}
+    =
+    A_H - i\beta \omega_H^2 I,
+    \label{eq:oned_csl_preconditioner}
+\end{equation}
+with default shift parameter $\beta = 0.3$. Each Krylov iteration applies
+$M_{\mathrm{CSL}}^{-1}$ to the residual. The preconditioner therefore changes
+the spectrum of the operator seen by GMRES,
+\begin{equation}
+    M_{\mathrm{CSL}}^{-1} A_H,
+    \label{eq:oned_preconditioned_operator}
+\end{equation}
+but it does not change the true eigenvalues of $A_H$ itself.
+
+The warm start and CSL preconditioner affect different parts of the algorithm.
+The warm start changes the initial error
+\[
+    e_0 = u_H - x_0,
+\]
+whereas the CSL preconditioner changes how GMRES propagates and reduces that
+error. The central hypothesis is that a useful $T_{\mathrm{up}}$ reduces the
+components of $e_0$ associated with difficult eigenmodes, so that the
+preconditioned Krylov iteration reaches the tolerance in fewer steps.
+
+The primary evaluation metric is the mean iteration count required to reach
+a relative residual tolerance of $10^{-6}$. Residual curves are reported
+together with the initial relative error, because a low residual and a low
+solution error need not coincide at iteration zero for indefinite Helmholtz
+systems.
+
+
+% ============================================================
+\subsection{Eigenvalue component weighting}
+\label{subsec:methodology_1d_component_weighting}
+% ============================================================
+
+For a normalized Dirichlet eigenbasis $V = [v_1,\ldots,v_n]$, the initial
+error is decomposed as
+\begin{equation}
+    e_0 = \sum_{k=1}^{n} c_k v_k,
+    \qquad
+    c_k = \langle v_k, e_0 \rangle.
+    \label{eq:oned_component_weighting}
+\end{equation}
+Because $\|v_k\|_2=1$ and the basis is orthonormal, $|c_k|$ measures the
+amplitude of the error in mode $k$. The cold start has $x_0=0$, so
+\[
+    e_0^{\mathrm{cold}} = u_H.
+\]
+For a warm start,
+\[
+    e_0^{\mathrm{warm}} = u_H - T_{\mathrm{up}}(u_L).
+\]
+The modal plots compare $|c_k^{\mathrm{cold}}|$ and
+$|c_k^{\mathrm{warm}}|$ as a function of ordered eigenmode index $k$.
+
+This analysis is performed for both the $288$-point physical-interior
+Dirichlet basis and the $512$-point full-grid Dirichlet basis. The $288$-point
+basis is the primary result because it corresponds to the physical domain on
+which the loss is evaluated. The $512$-point basis is a secondary comparison
+that tests whether the same qualitative modal reduction is visible on the full
+grid without introducing PML eigenvectors.
+
+The expected evidence for a successful warm start is not uniform reduction of
+all modes. Instead, the important question is whether the warm start reduces
+the error in the modes that are difficult for GMRES. These are typically modes
+near the origin of the Helmholtz spectrum, where the operator is close to
+singular and the Krylov method is most sensitive to phase and amplitude errors.
+
+
+% ============================================================
+\subsection{Sensitivity analysis plan}
+\label{subsec:methodology_1d_sensitivity}
+% ============================================================
+
+After the baseline corrected experiment is established, sensitivity analysis
+varies the numerical choices that can affect both the PML quality and the
+iteration count:
+\begin{table}[h]
+\centering
+\begin{tabular}{lll}
+\toprule
+Parameter & Default & Purpose of sweep \\
+\midrule
+$\sigma$ scale & $1.0$ & Test PML damping strength \\
+PML power $p$ & $2$ & Test damping ramp shape \\
+CSL shift $\beta$ & $0.3$ & Test preconditioner strength \\
+Frequency pair & $16\to32$ first & Test transfer difficulty \\
+Component basis & $288$ first & Compare physical and full-grid modal views \\
+\bottomrule
+\end{tabular}
+\caption{Sensitivity parameters for the corrected one-dimensional pipeline.}
+\label{tab:oned_sensitivity_parameters}
+\end{table}
+
+The sensitivity study is staged deliberately. First, the $16\to32$ transfer
+case is used to verify that the corrected PML data, training loss, component
+weighting, and GMRES evaluation are mutually consistent. Only after this
+baseline is understood are the higher frequency pairs and broader PML/CSL
+sweeps launched. This prevents an expensive sweep from obscuring a basic
+methodological error.
+
+
+% ============================================================
+\subsection{Summary of methodological safeguards}
+\label{subsec:methodology_1d_safeguards}
+% ============================================================
+
+The one-dimensional methodology contains four safeguards against misleading
+spectral conclusions.
+\begin{enumerate}
+    \item The Dirichlet eigensolver is validated against the analytical formula
+    \eqref{eq:oned_dirichlet_analytic_eigs}.
+    \item Eigenvalue component weighting is performed only in unit-norm
+    Dirichlet eigenvector bases.
+    \item The full PML operator is used for solves and GMRES, but not for
+    modal coefficient claims.
+    \item Iteration-count improvements are interpreted together with initial
+    solution error and modal error coefficients.
+\end{enumerate}
+Together, these safeguards make the one-dimensional study a reliable bridge
+between analytical spectral expectations and the large two-dimensional
+experiments where complete eigendecomposition is impossible.
+

@@ -1,0 +1,297 @@
+% ============================================================
+% Methodology appendix/section -- Computational strategy
+% Thesis: Frequency Helmholtz Transfer Operator
+% Author: F.E. Kiewiet de Jonge
+% ============================================================
+%
+% Suggested packages if this file is used standalone:
+%   \usepackage{amsmath, amssymb}
+%   \usepackage{booktabs}
+%   \usepackage{graphicx}
+%
+% This file documents how the computational workload was organized across
+% local machines, Wave servers, and ORCD cluster resources.
+
+\section{Computational methodology}
+\label{sec:methodology_computational}
+
+The numerical experiments in this thesis combine three computationally
+different tasks: finite-difference Helmholtz solves, neural-network training,
+and Krylov solver evaluation. These tasks stress different parts of the
+available hardware. Sparse Helmholtz solves are memory intensive and often
+CPU-bound, neural-network training is GPU-bound, and large experimental
+sweeps require reliable long-running job management. For this reason the
+computational workflow was designed around the strengths of three available
+environments: local development, Wave servers, and ORCD cluster resources.
+
+The guiding principle was to use the smallest machine that could answer the
+current question reliably. Local runs were used for code development and
+small validation tests. Wave servers were used for interactive GPU training,
+tmux-managed experiments, and rapid debugging. ORCD resources were used for
+larger sweeps, long wall-clock runs, and experiments that required automated
+resubmission or multiple independent jobs.
+
+
+% ============================================================
+\subsection{Separation of computational tasks}
+\label{subsec:computational_task_separation}
+% ============================================================
+
+The pipeline was divided into four stages:
+\begin{enumerate}
+    \item dataset generation;
+    \item neural-network training;
+    \item solver evaluation;
+    \item spectral and diagnostic analysis.
+\end{enumerate}
+Each stage was treated differently because its bottleneck is different.
+
+\begin{table}[h]
+\centering
+\begin{tabular}{llll}
+\toprule
+Stage & Main bottleneck & Preferred resource & Reason \\
+\midrule
+Dataset generation & Sparse linear solves, I/O & Wave or ORCD CPU/GPU nodes &
+Many independent samples \\
+Training & GPU throughput & Wave GPU or ORCD GPU &
+UNet training is accelerator-friendly \\
+Solver evaluation & Sparse solves and GMRES & Wave or ORCD &
+Measures true solver cost \\
+Spectral diagnostics & Dense eigensolves in 1D only & Local or Wave CPU &
+Small enough for exact checks \\
+\bottomrule
+\end{tabular}
+\caption{Computational stages and their preferred execution environments.}
+\label{tab:computational_stages}
+\end{table}
+
+This separation avoids a common failure mode in numerical machine learning:
+optimizing the neural-network training loop while ignoring the cost of the
+linear solver that the model is supposed to improve. The final evaluation is
+therefore always solver-native: the relevant metric is not only validation
+loss, but the number of Krylov iterations and the residual curve of the actual
+Helmholtz solve.
+
+
+% ============================================================
+\subsection{Local development}
+\label{subsec:computational_local}
+% ============================================================
+
+Local computation was used for small-scale development. The local workflow
+served four purposes:
+\begin{enumerate}
+    \item checking syntax and import errors;
+    \item testing plotting scripts on already generated arrays;
+    \item validating one-dimensional formulas against analytical references;
+    \item inspecting summaries, figures, and logs before launching expensive
+    jobs.
+\end{enumerate}
+Local runs were intentionally kept small. A script that could not complete
+quickly on a small problem was not launched at scale until the failure mode
+was understood. This reduced wasted cluster time and made the larger runs more
+reproducible.
+
+
+% ============================================================
+\subsection{Wave servers for interactive experiments}
+\label{subsec:computational_wave}
+% ============================================================
+
+Wave servers were used as the main interactive compute environment. They
+provided direct access to GPUs for neural-network training and enough memory
+for one-dimensional dense spectral analysis and moderate two-dimensional
+solver evaluation. Long-running interactive jobs were launched inside
+\texttt{tmux} sessions. This made runs robust to SSH disconnects and allowed
+training logs to be inspected without interrupting the process.
+
+The typical Wave workflow was:
+\begin{enumerate}
+    \item start a named \texttt{tmux} session;
+    \item launch one clearly scoped experiment, such as one frequency pair or
+    one sensitivity setting;
+    \item monitor progress through captured logs;
+    \item write outputs to a named result directory;
+    \item keep exploratory and corrected pipelines in separate folders.
+\end{enumerate}
+The use of named sessions was important. For example, corrected
+one-dimensional flux-PML experiments were launched in sessions named by the
+frequency pair and method. This made it possible to return to a run hours
+later and immediately identify what it was doing.
+
+GPU allocation on Wave was treated conservatively. Before launching training,
+GPU memory and utilization were checked. A single corrected training run was
+assigned to one idle GPU rather than competing with other active experiments.
+This reduced variance in training time and avoided accidental interference
+between jobs.
+
+
+% ============================================================
+\subsection{ORCD resources for large sweeps}
+\label{subsec:computational_orcd}
+% ============================================================
+
+ORCD cluster resources were used for larger experiments that were too broad
+or too long for interactive management. These included model-capacity sweeps,
+longer training budgets, residual-loss sweeps, and repeated benchmark
+evaluations over multiple frequency pairs. The ORCD workflow was organized
+around explicit sweep specifications rather than manual command histories.
+
+The reason is reproducibility. A sweep specification records the variant, the
+frequency pair, training budget, loss weights, model capacity, and output
+location. This makes it possible to summarize and re-run experiments without
+reconstructing decisions from terminal logs. For long jobs, checkpoints such
+as \texttt{last.pt} and \texttt{best.pt} were used so that training could
+resume safely after wall-time limits.
+
+The ORCD strategy can be summarized as follows:
+\begin{table}[h]
+\centering
+\begin{tabular}{lll}
+\toprule
+Mechanism & Purpose & Benefit \\
+\midrule
+Sweep files & Define experiment families & Reproducible comparisons \\
+Checkpoints & Save intermediate training state & Survive wall-time limits \\
+Automatic summaries & Compare variants systematically & Avoid cherry-picking \\
+Benchmark rendering & Generate solver-evaluation jobs & Keep metrics consistent \\
+Separate output folders & Preserve exploratory history & Avoid overwriting results \\
+\bottomrule
+\end{tabular}
+\caption{Cluster-level mechanisms used to make large experiments reproducible.}
+\label{tab:computational_orcd_mechanisms}
+\end{table}
+
+
+% ============================================================
+\subsection{Data and storage strategy}
+\label{subsec:computational_storage}
+% ============================================================
+
+The main data challenge is size. A two-dimensional complex field on a
+$512 \times 512$ grid contains more than a quarter million complex values.
+Thousands of such samples are required for training. Storing every auxiliary
+quantity naively would quickly make the dataset difficult to move, inspect,
+and reproduce.
+
+The storage strategy was therefore selective. Training datasets store the
+quantities required to reproduce the supervised learning problem: low- and
+high-frequency fields, normalization factors, frequencies, and metadata.
+Derived quantities such as residuals, modal coefficients, and plots are
+recomputed by analysis scripts when needed. This keeps the primary datasets
+compact while preserving the ability to regenerate diagnostics.
+
+Every generated dataset includes metadata describing the grid, PML depth,
+frequency pair, source distribution, solver type, and random seed. This is
+important because the same visual field can arise from different numerical
+conventions. In particular, Green-function data, row-scaled PML data, and
+corrected flux-PML data must not be mixed without explicit labels.
+
+
+% ============================================================
+\subsection{Optimization of numerical kernels}
+\label{subsec:computational_kernels}
+% ============================================================
+
+The sparse Helmholtz matrices are assembled once per frequency and reused
+across many right-hand sides whenever possible. Direct sparse factorizations
+or preconditioner factorizations are also reused within a batch of solves.
+This is essential because repeatedly assembling and factorizing the same
+operator would dominate the runtime and obscure the actual cost of the warm
+start.
+
+For GMRES evaluation, the comparison is made under a fixed numerical setup:
+same matrix, same right-hand sides, same preconditioner, same tolerance, and
+same maximum iteration budget. Only the initial guess changes. This makes the
+iteration-count comparison attributable to the warm start rather than to
+differences in solver configuration.
+
+In the one-dimensional spectral pipeline, dense eigendecompositions are used
+only because the matrices are small enough. In two dimensions, complete
+eigendecomposition is deliberately avoided. Instead, the two-dimensional
+analysis uses scalable diagnostics such as initial residual, interior error,
+GMRES iteration count, residual curves, and optionally sparse sampling of
+extreme eigenvalues.
+
+
+% ============================================================
+\subsection{Experiment tracking and reproducibility}
+\label{subsec:computational_tracking}
+% ============================================================
+
+Each experiment is placed in a directory whose name records the main design
+choice: frequency pair, training approach, PML convention, or sensitivity
+setting. Exploratory results are not overwritten by corrected results. For
+example, the corrected one-dimensional flux-PML pipeline is stored separately
+from the earlier exploratory one-dimensional results. This preserves the
+history of the work while making the final methodology easy to identify.
+
+The reproducibility checklist for a serious result is:
+\begin{enumerate}
+    \item a script or sweep file that launches the run;
+    \item a metadata file describing the numerical setup;
+    \item a checkpoint for the trained model;
+    \item a summary table of solver metrics;
+    \item residual curves and initial-error plots;
+    \item a clear distinction between exploratory and thesis-quality figures.
+\end{enumerate}
+This checklist is especially important because the project combines numerical
+PDE choices with machine-learning choices. A result is only interpretable if
+both sides of the experiment are recorded.
+
+
+% ============================================================
+\subsection{Computational challenges and safeguards}
+\label{subsec:computational_challenges}
+% ============================================================
+
+The computational difficulty of this project is not incidental. Helmholtz
+systems are indefinite and become harder at higher frequency. PML boundaries
+make the matrices complex and non-normal. Neural-network validation loss does
+not necessarily predict Krylov convergence. Large two-dimensional datasets
+are expensive to regenerate. These challenges create several risks:
+\begin{table}[h]
+\centering
+\begin{tabular}{lll}
+\toprule
+Risk & Consequence & Safeguard \\
+\midrule
+Wrong discretization convention & Misleading spectra & Validate in 1D first \\
+Field loss improves only visually & No solver benefit & Always benchmark GMRES \\
+PML contamination & Inflated initial residual & Test zeroing and PML-trained data \\
+Large sweeps become untraceable & Irreproducible conclusions & Use sweep specs and metadata \\
+GPU jobs interfere & Unstable runtimes & Check utilization and isolate runs \\
+\bottomrule
+\end{tabular}
+\caption{Main computational risks and safeguards.}
+\label{tab:computational_risks}
+\end{table}
+
+The main methodological safeguard is to end every important claim with a
+solver-level metric. Field loss is useful for training, but it is not the
+final objective. The final objective is reduced high-frequency FGMRES cost.
+Therefore every serious variant must be evaluated by initial residual,
+interior error, iteration count, and residual convergence curve.
+
+
+% ============================================================
+\subsection{Summary}
+\label{subsec:computational_summary}
+% ============================================================
+
+The computational strategy is deliberately layered. Local runs establish that
+the code and formulas are correct. Wave servers provide interactive GPU
+training and rapid solver debugging. ORCD resources provide reproducible
+large-scale sweeps and benchmarks. The same principle governs all three
+levels: use the cheapest reliable computation for the question at hand, and
+reserve expensive cluster runs for experiments whose design has already been
+validated.
+
+This organization makes the project computationally defensible. It recognizes
+that Helmholtz warm-start learning is not only a neural-network problem, but a
+coupled numerical linear algebra, PDE discretization, and high-performance
+computing problem. The experiments are therefore judged by the metric that
+matters for the thesis: whether learned low-frequency information reduces the
+cost of solving the high-frequency Helmholtz system.
+

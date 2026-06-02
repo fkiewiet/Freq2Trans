@@ -1,0 +1,60 @@
+sweep_id: phase1_verified_all_pairs_20260506
+description: >
+  Minimal controlled all-pair sweep after Gate 0 dataset auditing. This is not
+  the final physics-loss sweep; it establishes clean field-loss baselines and a
+  capacity/depth candidate using repaired/audited data.
+
+root_outdir: /orcd/scratch/orcd/006/fkiewiet/freq2transfer/precond_2d_rigorous/phase1_verified_all_pairs
+log_dir: /orcd/scratch/orcd/006/fkiewiet/freq2transfer/slurm_logs
+launcher: experiments/claude/precond_v3/launch/sbatch_pair_up_staged.sh
+
+pairs:
+  - "16_32"
+  - "32_64"
+  - "64_128"
+
+resources:
+  partition: mit_preemptable
+  time: "12:00:00"
+  cpus_per_task: 4
+  mem: 64G
+  gres: gpu:1
+
+defaults:
+  direction: up
+  max_runtime_h: 10.5
+  num_workers: 0
+  max_auto_resubmits: 20
+  args:
+    epochs: 1000
+    early_stop: 10000
+    lr_patience: 40
+
+experiments:
+  - id: base32_field_verified
+    hypothesis: clean repaired data plus standard base32 field loss is the reference all-pair baseline.
+    resume: false
+    args:
+      fresh: true
+      base_ch: 32
+      levels: 4
+      residual_weight: 0.0
+
+  - id: depth5_field_verified
+    hypothesis: 1D and old 16->32 behavior suggest deeper multiscale hierarchy may improve phase transfer.
+    resume: false
+    args:
+      fresh: true
+      base_ch: 32
+      levels: 5
+      residual_weight: 0.0
+
+  - id: base48_field_verified
+    hypothesis: width may help if the bottleneck is capacity rather than data/operator mismatch.
+    resume: false
+    args:
+      fresh: true
+      base_ch: 48
+      levels: 4
+      residual_weight: 0.0
+

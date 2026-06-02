@@ -1,0 +1,887 @@
+% !TEX root = ../main.tex
+% ============================================================
+% Results chapter, revised after the Greenlight meeting with Kees.
+% Figures are referenced as if they are stored in figures/ch7/.
+% ============================================================
+
+% Compile-safe figure inclusion for this draft chapter. If a plot has not yet
+% been copied into figures/ch7, LaTeX prints a labelled placeholder instead of
+% aborting with a graphics error.
+\providecommand{\resultsfigure}[2][]{%
+    \IfFileExists{#2}{%
+        \includegraphics[#1]{#2}%
+    }{%
+        \fbox{%
+            \begin{minipage}[c][0.32\textheight][c]{0.92\linewidth}
+                \centering
+                Missing figure file:\\[0.5em]
+                \texttt{\detokenize{#2}}
+            \end{minipage}%
+        }%
+    }%
+}
+
+\chapter{Results}
+\label{chapter:results}
+
+This chapter evaluates whether learned frequency transfer can be used in a
+Helmholtz solver. The main conclusion is intentionally precise. A learned
+transfer model can predict high-frequency wavefields with small relative field
+error, but a Krylov method is controlled by residuals, not by field error
+alone. A good-looking predicted solution may still be a poor algebraic initial
+guess, because the Helmholtz operator can amplify small field errors into large
+residual components.
+
+The chapter is organised as a single chain of evidence. First,
+Section~\ref{sec:results-1d} uses a one-dimensional Dirichlet problem as a
+controlled setting where the residual-amplification mechanism can be diagnosed
+exactly in an analytical eigenbasis. Second, Section~\ref{sec:results-1d-pml}
+adds a one-dimensional PML. This removes the simple symmetric eigenbasis, but
+it tests the same residual-facing diagnostics and isolates the role of the
+absorbing layer. Third, Section~\ref{sec:results-2d} carries the same
+questions to the two-dimensional FD/PML setting used elsewhere in the thesis.
+Across all three settings, the same distinction is maintained: field error,
+true residual, and CSL-preconditioned residual are related but not
+interchangeable quantities.
+
+All main solver-facing results in this chapter use CSL damping
+$\beta=0.3$. Earlier experiments with $\beta=0.1$ showed the same qualitative
+ordering, but they are not used as the main comparison here. This convention is
+kept fixed to avoid mixing numerical effects from the learned start with
+changes in the classical preconditioner.
+
+Throughout this chapter, the learned model is used as a \emph{warm start}
+unless stated otherwise. It chooses the initial guess $x_0$. It does not
+modify the operator and it does not replace the CSL preconditioner. The CSL
+preconditioner still defines the preconditioned Krylov process; the learned
+model changes only the initial residual supplied to that process.
+
+This convention determines the interpretation of every table in the chapter.
+The true residual $\|b-Ax\|_2/\|b\|_2$ measures whether the original discrete
+Helmholtz equation is being solved. The preconditioned residual
+$\|M^{-1}(b-Ax)\|_2/\|M^{-1}b\|_2$ measures the residual after the CSL
+preconditioner has acted on it. A learned warm start may improve one of these
+metrics without improving the other.
+
+% ============================================================
+\section{One-dimensional Dirichlet results}
+\label{sec:results-1d}
+% ============================================================
+
+The one-dimensional Dirichlet experiment isolates the mechanism in the cleanest
+possible setting. The problem is the homogeneous Dirichlet Helmholtz equation
+on a grid with $N=512$ unknowns and no PML. The frequency pair is
+\[
+    \omega_L = 16,
+    \qquad
+    \omega_H = 32.
+\]
+With the sign convention
+\[
+    A_\omega = -D_{xx} - \omega^2 I,
+\]
+the eigenpairs are known analytically:
+\begin{equation}
+    \lambda_k(\omega)
+    =
+    \frac{4}{h^2}
+    \sin^2\!\left(\frac{\pi k}{2(N+1)}\right)
+    -
+    \omega^2,
+    \qquad
+    v_k(j)
+    =
+    \sqrt{\frac{2}{N+1}}
+    \sin\!\left(\frac{j k \pi}{N+1}\right).
+    \label{eq:results-dirichlet-eigenpairs}
+\end{equation}
+The eigenvectors are Euclidean-normalised. This matters because modal
+coefficients of field errors and residuals can then be compared directly.
+
+The learned model in this section is a one-dimensional U-Net trained to map
+$u_{16}$ to $u_{32}$. Its input consists of the real and imaginary parts of the
+low-frequency field and, in the final Dirichlet model, the real and imaginary
+right-hand-side channels. The training objective is the full-grid complex
+relative $\ell^2$ field loss. The best validation loss is approximately
+$5.37\times 10^{-3}$, so the model is a strong field predictor in this
+controlled setting.
+
+% ------------------------------------------------------------
+\subsection{Field accuracy is not residual accuracy}
+\label{subsec:results-field-vs-residual}
+% ------------------------------------------------------------
+
+Let $u_\star$ be the exact high-frequency solution and $x_0$ an initial guess.
+The initial field error and residual satisfy
+\begin{equation}
+    e_0 = u_\star - x_0,
+    \qquad
+    r_0 = b - A_H x_0 = A_H e_0.
+    \label{eq:results-error-residual}
+\end{equation}
+Expanding in the Dirichlet eigenbasis gives
+\begin{equation}
+    e_0 = \sum_{k=1}^{N} c_k(e_0)v_k,
+    \qquad
+    r_0 = \sum_{k=1}^{N} \lambda_k c_k(e_0)v_k.
+    \label{eq:results-modal-amplification}
+\end{equation}
+Thus
+\[
+    c_k(r_0) = \lambda_k c_k(e_0).
+\]
+Small field-error coefficients in modes with large $|\lambda_k|$ can therefore
+become large residual coefficients. This is the central mechanism behind the
+apparently contradictory behaviour of the learned warm start.
+
+\begin{table}[htbp]
+\centering
+\caption{One-dimensional Dirichlet initial-state diagnostics for the
+$16\to32$ pair with CSL damping $\beta=0.3$. The raw U-Net is an accurate field
+predictor, but it is not a safe true-residual warm start. The residual gate
+keeps only modal components that reduce the residual.}
+\label{tab:results-1d-initial-state}
+\begin{tabular}{lccc}
+\toprule
+Initial guess & Field error & $\|r_0\|_2/\|b\|_2$
+& $\|M^{-1}r_0\|_2/\|M^{-1}b\|_2$ \\
+\midrule
+Cold start & $1.000$ & $1.000$ & $1.000$ \\
+Raw U-Net & $0.071$ & $12.81$ & $0.173$ \\
+Residual gate & $0.066$ & $0.708$ & $0.147$ \\
+Two gated cycles & $0.060$ & $0.681$ & $0.129$ \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Table~\ref{tab:results-1d-initial-state} is the most compact version of the
+first result. The raw U-Net reduces the field error from $1.000$ to $0.071$,
+but its true residual is $12.81\|b\|_2$. This is not a plotting artefact and
+not a failure of the linear solver. It is exactly the amplification described
+by~\eqref{eq:results-modal-amplification}. The same raw residual looks much
+less severe after CSL preconditioning, with preconditioned residual $0.173$.
+This explains why the raw learned start can still be useful inside
+CSL-FGMRES, even though it is poor in the original residual norm.
+
+The residual gate gives the clearest diagnostic answer. It lowers the true
+initial residual from $12.81$ to $0.708$, below the cold-start value, while
+also slightly improving the field error. The learned model therefore contains
+useful solver-facing information, but the information must be selected. Used
+raw, it contains harmful modal components; gated by residual improvement, it
+becomes algebraically safe.
+
+\begin{figure}[htbp]
+    \centering
+    \resultsfigure[width=\linewidth]{figures/ch7/01_true_residual_vs_iteration.png}
+    \caption{True residual versus FGMRES iteration for the 1D Dirichlet
+    $16\to32$ problem with $\beta=0.3$. Source plot:
+    \texttt{01\_true\_residual\_vs\_iteration.png}. The raw U-Net begins with
+    a much larger true residual than the cold start, while the residual-gated
+    starts begin below the cold residual. After several iterations the curves
+    enter a similar CSL-controlled convergence regime.}
+    \label{fig:results-1d-dirichlet-true-residual}
+\end{figure}
+
+\begin{figure}[htbp]
+    \centering
+    \resultsfigure[width=\linewidth]{figures/ch7/03_field_error_vs_iteration.png}
+    \caption{Field error versus FGMRES iteration for the same 1D Dirichlet
+    experiment. Source plot:
+    \texttt{03\_field\_error\_vs\_iteration.png}.
+    The learned starts are much closer to the exact solution at iteration
+    zero, but field error alone does not determine the residual seen by the
+    original Helmholtz equation.}
+    \label{fig:results-1d-dirichlet-field-error}
+\end{figure}
+
+Figures~\ref{fig:results-1d-dirichlet-true-residual}
+and~\ref{fig:results-1d-dirichlet-field-error} answer a specific concern from
+the Greenlight discussion: the residual plots can show apparent gaps because
+the methods start at very different residual levels. The gaps are real. They
+show different initial residual states, not inconsistent plotting. After a
+small number of Krylov iterations, the curves begin to collapse toward similar
+slopes because the subsequent convergence is governed mainly by the
+CSL-preconditioned operator. The learned start improves the initial state; it
+does not replace the Krylov process.
+
+% ------------------------------------------------------------
+\subsection{Residual gating and the size of the solver benefit}
+\label{subsec:results-gating-benefit}
+% ------------------------------------------------------------
+
+The residual gate accepts a learned modal component only if that component
+reduces the corresponding modal residual relative to the current baseline. In
+the Dirichlet setting this can be done exactly because the eigenvectors in
+\eqref{eq:results-dirichlet-eigenpairs} are known. This is deliberately a
+one-dimensional explanatory tool. It is not proposed as a production method
+for the two-dimensional PML problem.
+
+The iteration improvement from gating is modest. In the present
+per-iteration experiment, the raw U-Net, residual gate, and two-gated-cycle
+starts all converge in nearly the same number of CSL-FGMRES iterations once
+the early residual state is corrected. This should not be hidden, because it is
+an important scientific point. The gate proves that useful learned components
+exist and can make the initial state residual-safe. It does not, by itself,
+change the spectrum of the preconditioned Krylov operator. Therefore the
+iteration-count gain is small, while the diagnostic value is large.
+
+The correct interpretation is therefore:
+\[
+\text{learned field prediction}
+\quad\not\Rightarrow\quad
+\text{solver-compatible initial state}.
+\]
+The implication becomes valid only after a residual-aware selection step.
+
+% ------------------------------------------------------------
+\subsection{Left and right preconditioning}
+\label{subsec:results-left-right}
+% ------------------------------------------------------------
+
+Krylov convergence can be monitored in different residual norms depending on
+how the preconditioner is inserted. Left preconditioning solves
+\[
+    M^{-1}A x = M^{-1}b,
+\]
+and therefore directly minimises the residual of the transformed system,
+$M^{-1}(b-Ax)$. Right preconditioning solves
+\[
+    A M^{-1} y = b,
+    \qquad x = M^{-1}y,
+\]
+and therefore more directly targets the true residual of the original system.
+
+For this thesis the true residual
+\[
+    \frac{\|b-Ax_k\|_2}{\|b\|_2}
+\]
+is the headline convergence metric, because it measures whether the iterate
+solves the original Helmholtz equation. The preconditioned residual
+\[
+    \frac{\|M^{-1}(b-Ax_k)\|_2}{\|M^{-1}b\|_2}
+\]
+is reported as an explanatory diagnostic, because it describes what the CSL
+preconditioner presents to the Krylov process.
+
+\begin{table}[htbp]
+\centering
+\caption{Left versus right CSL preconditioning for the 1D Dirichlet
+$16\to32$ problem. The initial values are identical because the initial guess
+is the same. By iteration 10, right preconditioning gives smaller true
+residuals, while left preconditioning gives smaller preconditioned residuals.}
+\label{tab:results-left-right}
+\begin{tabular}{llccc}
+\toprule
+Method & Side & Initial true residual & Iteration-10 true residual
+& Iteration-10 preconditioned residual \\
+\midrule
+Cold & Left & $1.000$ & $1.06\times10^{-2}$ & $2.68\times10^{-3}$ \\
+Cold & Right & $1.000$ & $2.52\times10^{-3}$ & $4.53\times10^{-3}$ \\
+Raw U-Net & Left & $13.19$ & $4.96\times10^{-2}$ & $7.56\times10^{-4}$ \\
+Raw U-Net & Right & $13.19$ & $6.73\times10^{-4}$ & $1.48\times10^{-3}$ \\
+Residual gate & Left & $0.722$ & $4.88\times10^{-3}$ & $6.42\times10^{-4}$ \\
+Residual gate & Right & $0.722$ & $6.10\times10^{-4}$ & $1.27\times10^{-3}$ \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{figure}[htbp]
+    \centering
+    \resultsfigure[width=\linewidth]{figures/ch7/01_left_vs_right_true_residual.png}
+    \caption{True residual for explicit left- and right-preconditioned GMRES
+    on the 1D Dirichlet problem. Source plot:
+    \texttt{01\_left\_vs\_right\_true\_residual.png}. Right preconditioning
+    reduces the true residual more directly, which makes it easier to
+    interpret as a solver-facing convergence curve.}
+    \label{fig:results-left-right-true}
+\end{figure}
+
+\begin{figure}[htbp]
+    \centering
+    \resultsfigure[width=\linewidth]{figures/ch7/02_left_vs_right_precond_residual.png}
+    \caption{Preconditioned residual for the same left- and
+    right-preconditioned GMRES comparison. Source plot:
+    \texttt{02\_left\_vs\_right\_precond\_residual.png}. Left
+    preconditioning gives smaller preconditioned residuals because that is the
+    residual norm minimised by the transformed system.}
+    \label{fig:results-left-right-precond}
+\end{figure}
+
+Table~\ref{tab:results-left-right} and
+Figures~\ref{fig:results-left-right-true}--\ref{fig:results-left-right-precond}
+show why both residual norms must be named explicitly. Left preconditioning is
+not wrong, and right preconditioning is not universally superior. They optimise
+different residuals. For thesis presentation, the safest convention is to show
+the true residual as the primary solver-facing metric and the preconditioned
+residual as the explanation of the Krylov behaviour.
+
+The Dirichlet study therefore supplies the analytical mechanism for the rest
+of the chapter. A learned field can be accurate, and it can even look benign
+after CSL preconditioning, while still having a large true residual. Residual
+gating shows that this failure is not caused by the network being useless; it
+is caused by useful and harmful modal components being mixed in the same field
+prediction.
+
+% ============================================================
+\section{One-dimensional PML as an intermediate test}
+\label{sec:results-1d-pml}
+% ============================================================
+
+The one-dimensional PML experiment is the bridge between the clean Dirichlet
+analysis and the two-dimensional FD/PML problem. It keeps the problem small
+enough to inspect carefully, but it removes the simple symmetric Dirichlet
+eigenbasis. For that reason this section reports residual and error curves
+only. It deliberately does not attempt a full eigenvalue/eigenvector analysis
+of the PML operator. The purpose is narrower and more practical: test whether
+the learned field remains compatible with the full discrete operator when the
+absorbing layer is included.
+
+The most important comparison is between three learned starts. The
+\emph{green raw} start is an older PML model used directly. The
+\emph{green zero} start zeros the PML part of that output. The
+\emph{flux-full} start is trained on the full flux-form PML output and is used
+without zeroing the absorbing layer.
+
+\begin{table}[htbp]
+\centering
+\caption{One-dimensional PML initial-state diagnostics for the $16\to32$ pair
+with $\beta=0.3$. The flux-full model improves all three initial metrics,
+whereas zeroing the PML strongly damages the true residual.}
+\label{tab:results-1d-pml-initial-state}
+\begin{tabular}{lccc}
+\toprule
+Initial guess & Field error & $\|r_0\|_2/\|b\|_2$
+& $\|M^{-1}r_0\|_2/\|M^{-1}b\|_2$ \\
+\midrule
+Cold start & $1.000$ & $1.000$ & $1.000$ \\
+Green raw & $0.257$ & $1.924$ & $0.339$ \\
+Green zero & $0.521$ & $37.14$ & $0.753$ \\
+Flux-full & $0.022$ & $0.539$ & $0.034$ \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{figure}[htbp]
+    \centering
+    \resultsfigure[width=\linewidth]{figures/ch7/combined_1d_dirichlet_pml_true_residual.png}
+    \caption{Side-by-side true-residual FGMRES curves for the two
+    one-dimensional $16\to32$ experiments with CSL damping $\beta=0.3$.
+    Left: in the Dirichlet problem, the raw U-Net starts with a much larger
+    true residual than the cold start, while residual gating makes the learned
+    start algebraically safe. Right: in the PML problem, the flux-full model
+    starts below the cold residual, while zeroing the PML output produces a
+    much larger initial residual. Together these curves show that learned
+    transfer is useful only when its output is compatible with the residual
+    seen by the discrete Helmholtz operator.}
+    \label{fig:results-1d-dirichlet-pml-combined}
+\end{figure}
+
+\begin{figure}[htbp]
+    \centering
+    \resultsfigure[width=\linewidth]{figures/ch7/03_pml_field_error_vs_iteration.png}
+    \caption{Field error versus FGMRES iteration for the 1D PML experiment.
+    Source plot:
+    \texttt{03\_pml\_field\_error\_vs\_iteration.png}.
+    The flux-full model starts much closer to the exact full-grid PML solution
+    than the older PML starts.}
+    \label{fig:results-1d-pml-field-error}
+\end{figure}
+
+Figure~\ref{fig:results-1d-dirichlet-pml-combined} puts the two
+one-dimensional lessons on the same page. In the Dirichlet case, the issue is
+spectral: the raw learned field is close in relative $\ell^2$ error, but some
+modal components are amplified by $A_H$ into a large true residual. The
+residual gate removes this failure mode and gives an initial residual below
+the cold-start value. In the PML case, the issue is boundary compatibility:
+the absorbing layer is part of the discrete operator, so a field that is good
+in the physical region can still be a poor algebraic state if the PML values
+are inconsistent.
+
+This result answers the practical PML question. The absorbing layer is part of
+the discrete operator. It is therefore not safe to treat it as an output region
+that can simply be discarded. In Table~\ref{tab:results-1d-pml-initial-state},
+zeroing the PML increases the true residual from $1.924$ to $37.14$ for the
+older green model. By contrast, the flux-full model, trained on the full PML
+field, improves the field error, true residual, and preconditioned residual at
+the same time.
+
+The one-dimensional evidence now has two parts. The Dirichlet experiment shows
+why field accuracy alone is not enough: modal errors can be amplified into
+large residuals. The PML experiment shows that compatibility with the
+absorbing layer is also solver-facing: the PML values are part of the equation
+being solved, not an optional boundary decoration. The two-dimensional
+experiments test whether these two lessons remain visible in the full FD/PML
+setting.
+
+% ============================================================
+\section{Two-dimensional FD/PML results}
+\label{sec:results-2d}
+% ============================================================
+
+The two-dimensional experiments test whether the two one-dimensional lessons
+survive in the realistic finite-difference/PML setting. The first lesson is
+that field error is not the same as residual error. The second is that the PML
+must be learned as part of the operator-compatible solution field. The grid is
+$512\times512$ with a PML of width 112 on each side, leaving a
+$288\times288$ physical interior. The tested frequency pairs are
+\[
+    16\to32,
+    \qquad
+    32\to64,
+    \qquad
+    64\to128.
+\]
+Each pair uses $9600$ full-grid FD/PML samples with complex Gaussian sources.
+The main learned model is a full-grid flux-trained \texttt{TransferUNet} with
+\texttt{base\_ch=32} and five levels. Unlike older interior-focused models,
+the PML region is included in the training target.
+
+The field prediction results show that the model learns nontrivial transfer
+maps for all pairs. The best full-grid validation errors are approximately
+$0.240$, $0.321$, and $0.339$ for $16\to32$, $32\to64$, and $64\to128$,
+respectively; the corresponding interior errors are approximately $0.190$,
+$0.252$, and $0.276$. These numbers establish that the network has learned a
+meaningful solution-field map. They do not, by themselves, establish solver
+acceleration. The next question is therefore not only how small the validation
+loss becomes, but what physical structure is being learned by the optimisation
+process.
+
+\begin{figure}[htbp]
+    \centering
+    \resultsfigure[width=\linewidth]{figures/ch7/training_64_128.png}
+    \caption{Training and validation curves for the full-grid FD/PML
+    \texttt{TransferUNet} on the $64\to128$ pair. This is the hardest tested
+    pair and shows the behaviour of the full-grid complex relative $\ell^2$
+    objective.}
+    \label{fig:results-2d-training-64-128}
+\end{figure}
+
+% ------------------------------------------------------------
+\subsection{Training behaviour and learned field structure}
+\label{subsec:results-2d-learned-structure}
+% ------------------------------------------------------------
+
+The training curve in Figure~\ref{fig:results-2d-training-64-128} is included
+for more than bookkeeping. It shows that the hardest tested transfer pair is
+still being optimised under a field-level objective: the supervised loss asks
+for a high-frequency solution field, not for a residual-minimising correction.
+This matters for interpreting the rest of the chapter. The machine-learning
+pipeline succeeds in learning organised wavefield structure, but the loss does
+not by itself enforce compatibility with the Krylov residual.
+
+A useful mechanistic diagnostic is provided by an earlier analytic
+Green's-function CNN experiment. This diagnostic is not the main quantitative
+FD/PML benchmark used in Table~\ref{tab:results-2d-beta03-precond}; it uses an
+older $N=600$ dilated CNN trained on analytic multi-source fields. Its value is
+explanatory. It shows what kind of representation a field-trained
+frequency-transfer network can discover before any solver-facing residual
+test is applied.
+
+\begin{figure}[htbp]
+    \centering
+    \resultsfigure[width=\linewidth]{figures/ch7/fig_voronoi_prediction.png}
+    \caption{Mechanistic diagnostic for an older analytic Green's-function
+    CNN on a six-source $16\to32$ example. The prediction preserves
+    source-centred outgoing wave packets, while the normalised error is
+    structured rather than uniform. The Voronoi overlay marks the geometric
+    partition induced by the source locations. The diagnostic model is not the
+    final full-grid FD/PML model; it is used here to interpret the kind of
+    source-wise structure learned by field-level frequency transfer.}
+    \label{fig:results-voronoi-prediction}
+\end{figure}
+
+The diagnostic in Figure~\ref{fig:results-voronoi-prediction} suggests a
+source-wise interpretation of the learned map. A multi-source Helmholtz field
+can be written schematically as
+\[
+    u_\omega(x) = \sum_i a_i \phi_\omega(x;x_i),
+\]
+where $\phi_\omega(\cdot;x_i)$ is a Green's-function-like outgoing atom
+centred at source location $x_i$. The network was not given the individual
+atoms, the source labels, a sparsity loss, or a Voronoi loss. Nevertheless,
+the prediction is consistent with a windowed approximation of the form
+\[
+    \widehat{u}_{\omega_H}(x)
+    \approx
+    \sum_i W_i(x) a_i \phi_{\omega_H}(x;x_i),
+\]
+where $W_i$ behaves like a smooth spatial window associated with source $i$.
+The natural geometric model for these windows is the Voronoi tessellation of
+the source locations: inside a cell, one source dominates the local outgoing
+wave; near cell boundaries, coherent interference between sources becomes
+important and the error increases.
+
+\begin{figure}[htbp]
+    \centering
+    \resultsfigure[width=0.92\linewidth]{figures/ch7/fig_atom_decomposition.png}
+    \caption{Physical atom-decomposition diagnostic for the same analytic
+    setting. The figure separates the coherent high-frequency target from a
+    Voronoi-windowed atom approximation. The comparison clarifies the
+    mechanism suggested by Figure~\ref{fig:results-voronoi-prediction}: local
+    source-centred propagation can be learned well, while global coherent
+    interference is the harder part of the field.}
+    \label{fig:results-voronoi-atoms}
+\end{figure}
+
+This observation strengthens the interpretation of the validation curves. The
+network is not merely fitting noise or producing a blurred high-frequency
+field. It appears to infer source locations from the low-frequency wavefield
+and re-emit local outgoing waves at the target frequency. At the same time,
+the diagnostic explains why field accuracy is not the end of the story. A
+Voronoi-windowed approximation can be physically meaningful and visually
+structured while still omitting coherent interference terms that matter after
+the high-frequency operator is applied.
+
+The methodological point is central to the chapter. The optimisation did not
+stop at the supervised loss value. Training behaviour, visual field
+diagnostics, physical atom decompositions, true residuals, and preconditioned
+residuals are used together to determine what has been learned and what
+remains missing. This is why the remainder of the section evaluates the same
+learned fields as warm starts in CSL-FGMRES rather than treating validation
+RelL2 as the final success metric.
+
+The solver-facing evaluation uses CSL-FGMRES with $\beta=0.3$, $10$
+independently generated test right-hand sides per pair, and a fixed budget of
+$40$ iterations. No method reaches the convergence tolerance within this
+budget, so the iteration count is reported as $41$ for every method; this
+value denotes failure to converge within the $40$-iteration budget, not an
+additional iteration. The relevant comparison is therefore the residual after
+the fixed iteration budget.
+
+Two residual norms are reported. The true residual,
+\[
+    \frac{\|b-Ax\|_2}{\|b\|_2},
+\]
+measures whether the iterate solves the original Helmholtz equation. The
+CSL-preconditioned residual,
+\[
+    \frac{\|M_{\mathrm{CSL}}^{-1}(b-Ax)\|_2}
+         {\|M_{\mathrm{CSL}}^{-1}b\|_2},
+\]
+measures the residual in the coordinates seen by the preconditioned Krylov
+process. This distinction is essential: a warm start can improve the final
+true-residual trajectory without being uniformly better in the
+preconditioned residual norm.
+
+\begin{table}[htbp]
+\centering
+\caption{Two-dimensional FD/PML warm-start evaluation with CSL damping
+$\beta=0.3$, $10$ test samples, and $40$ FGMRES iterations. All entries are
+sample means. Since no method reaches the tolerance within the budget, the
+final residuals are the main solver-facing comparison.}
+\label{tab:results-2d-beta03-precond}
+\begin{adjustbox}{max width=\textwidth}
+\begin{tabular}{llcccccc}
+\toprule
+Pair & Method & Full error & PML ratio
+& Initial true res. & Initial prec. res.
+& Final true res. & Final prec. res. \\
+\midrule
+$16\to32$ & Cold
+& $1.000$ & -- & $1.00$ & $1.00$
+& $2.05{\times}10^{-3}$ & $1.56{\times}10^{-3}$ \\
+& Depth5 zero
+& $0.570$ & $0.000$ & $15.76$ & $0.233$
+& $9.34{\times}10^{-4}$ & $4.32{\times}10^{-4}$ \\
+& Flux-full raw
+& $0.238$ & $0.409$ & $1.49$ & $0.116$
+& $4.22{\times}10^{-4}$ & $2.30{\times}10^{-4}$ \\
+& Flux-full zero
+& $0.573$ & $0.000$ & $15.58$ & $0.236$
+& $9.21{\times}10^{-4}$ & $4.62{\times}10^{-4}$ \\
+\midrule
+$32\to64$ & Cold
+& $1.000$ & -- & $1.00$ & $1.00$
+& $3.83{\times}10^{-1}$ & $3.08$ \\
+& Depth5 zero
+& $0.590$ & $0.000$ & $11.25$ & $0.273$
+& $4.37{\times}10^{-1}$ & $0.764$ \\
+& Flux-full raw
+& $0.352$ & $0.365$ & $1.93$ & $0.712$
+& $3.28{\times}10^{-1}$ & $1.09$ \\
+& Flux-full zero
+& $0.587$ & $0.000$ & $10.55$ & $0.265$
+& $4.21{\times}10^{-1}$ & $0.749$ \\
+\midrule
+$64\to128$ & Cold
+& $1.000$ & -- & $1.00$ & $1.00$
+& $4.33{\times}10^{-1}$ & $10.92$ \\
+& Depth5 zero
+& $0.616$ & $0.000$ & $6.40$ & $0.895$
+& $5.22{\times}10^{-1}$ & $6.97$ \\
+& Flux-full raw
+& $0.276$ & $0.322$ & $1.86$ & $18.41$
+& $3.79{\times}10^{-1}$ & $28.51$ \\
+& Flux-full zero
+& $0.542$ & $0.000$ & $5.93$ & $0.685$
+& $4.66{\times}10^{-1}$ & $5.31$ \\
+\bottomrule
+\end{tabular}
+\end{adjustbox}
+\end{table}
+
+Table~\ref{tab:results-2d-beta03-precond} gives the central
+two-dimensional result. The full-grid model used directly,
+\texttt{flux\_full\_raw}, gives the lowest final true residual for all three
+frequency pairs. The improvement is largest for $16\to32$, where the final
+true residual decreases from $2.05\times10^{-3}$ for the cold start to
+$4.22\times10^{-4}$. The harder pairs show smaller but still consistent
+improvements:
+\[
+    3.83\times10^{-1} \to 3.28\times10^{-1}
+    \quad\text{for }32\to64,
+\]
+and
+\[
+    4.33\times10^{-1} \to 3.79\times10^{-1}
+    \quad\text{for }64\to128.
+\]
+Thus, in the true residual norm, the learned full-grid warm start improves the
+finite-budget CSL-FGMRES trajectory for every tested pair.
+
+The preconditioned residual gives a more nuanced picture. For $16\to32$,
+\texttt{flux\_full\_raw} improves both the initial and final preconditioned
+residuals. For $32\to64$, it improves the initial preconditioned residual
+relative to the cold start, but \texttt{flux\_full\_zero} has the lowest final
+preconditioned residual. For $64\to128$, the raw full-grid warm start has a
+large preconditioned residual, even though it still gives the best final true
+residual. This means that the learned warm start is not yet a uniformly
+residual-compatible preconditioned state. It helps the original residual
+trajectory, but it should not be interpreted as a learned preconditioner.
+This is exactly the distinction introduced by the one-dimensional experiments:
+the learned field contains useful solver-facing information, but the way that
+information appears depends on which residual norm is inspected.
+
+\begin{figure}[htbp]
+    \centering
+    \resultsfigure[width=\linewidth]{figures/ch7/gmres_clean_64_128.png}
+    \caption{Clean true-residual CSL-FGMRES convergence curves for the
+    $64\to128$ FD/PML pair at $\beta=0.3$. The plot omits the old raw depth5
+    model to keep the scale readable. The full-grid flux-trained warm start
+    gives the lowest final true residual after the fixed iteration budget,
+    although the improvement is modest for this hardest pair.}
+    \label{fig:results-2d-gmres-clean-64-128}
+\end{figure}
+
+\begin{figure}[htbp]
+    \centering
+    \resultsfigure[width=\linewidth]{figures/ch7/2d_final_true_residual_bars.png}
+    \caption{Final true residual after $40$ CSL-FGMRES iterations for the
+    2D FD/PML experiments at $\beta=0.3$. The full-grid flux-trained warm
+    start has the lowest final true residual for all three frequency pairs.}
+    \label{fig:results-2d-final-true-bars}
+\end{figure}
+
+\begin{figure}[htbp]
+    \centering
+    \resultsfigure[width=\linewidth]{figures/ch7/2d_initial_residual_comparison.png}
+    \caption{Initial true residual and initial CSL-preconditioned residual for
+    the cold start and the raw full-grid learned warm start. The learned start
+    is strongly favourable in preconditioned coordinates for $16\to32$,
+    partially favourable for $32\to64$, and unfavourable for $64\to128$.}
+    \label{fig:results-2d-initial-residual-comparison}
+\end{figure}
+
+
+
+\subsection{Adaptive convergence-to-tolerance check}
+\label{subsec:results-2d-adaptive-convergence}
+
+The fixed-budget experiment above compares the finite-budget residual at a
+common iteration count. It does not, however, answer the practical question of
+how many iterations are needed to reach a prescribed tolerance. For that
+reason I also ran adaptive stopping experiments with the same FD/PML operator,
+the same CSL damping $\beta=0.3$, and the true-residual stopping rule
+\[
+    \frac{\|b-Ax_k\|_2}{\|b\|_2} \leq 10^{-6}.
+\]
+The $16\to32$ pair was evaluated on ten test right-hand sides. The
+$32\to64$ pair was evaluated on three test right-hand sides, because it
+requires approximately five times as many Krylov iterations. For the hardest
+$64\to128$ pair, I ran a one-sample long convergence probe with a cap of
+$10\,000$ iterations. This last run is included to establish the scale of the
+iteration count rather than to estimate a sample mean.
+
+\begin{table}[htbp]
+\centering
+\caption{Adaptive two-dimensional FD/PML convergence with CSL damping
+$\beta=0.3$ and stopping tolerance $10^{-6}$ in true relative residual. The
+learned starts are zero-PML warm starts: the physical-domain prediction is
+used, while the PML strip is set to zero before FGMRES. The $64\to128$ row is
+a one-sample long probe, so it should be read as a scale estimate rather than
+a sample mean.}
+\label{tab:results-2d-adaptive-all-pairs}
+\begin{adjustbox}{max width=\textwidth}
+\begin{tabular}{llcccc}
+\toprule
+Pair & Method & Samples & Converged & Mean it. & Initial true res. \\
+\midrule
+$16\to32$ & Cold & 10 & 10/10 & 69.4 & $1.00\times10^{0}$ \\
+& Depth5 zero-PML & 10 & 10/10 & 66.9 & $1.58\times10^{1}$ \\
+& Base32 zero-PML & 10 & 10/10 & 67.0 & $1.42\times10^{1}$ \\
+& Base48 zero-PML & 10 & 10/10 & 67.1 & $1.43\times10^{1}$ \\
+\midrule
+$32\to64$ & Cold & 3 & 3/3 & 347.3 & $1.00\times10^{0}$ \\
+& Depth5 zero-PML & 3 & 3/3 & 343.0 & $1.14\times10^{1}$ \\
+& Base32 zero-PML & 3 & 3/3 & 343.7 & $9.92\times10^{0}$ \\
+& Base48 zero-PML & 3 & 3/3 & 343.0 & $9.35\times10^{0}$ \\
+\midrule
+$64\to128$ & Cold & 1 & 1/1 & 2073.0 & $1.00\times10^{0}$ \\
+& Depth5 zero-PML & 1 & 1/1 & 2062.0 & $6.10\times10^{0}$ \\
+\bottomrule
+\end{tabular}
+\end{adjustbox}
+\end{table}
+
+\begin{figure}[htbp]
+    \centering
+    \resultsfigure[width=0.82\linewidth]{figures/ch7/2d_adaptive_summary/2d_adaptive_iterations_by_pair.png}
+    \caption{Adaptive CSL-FGMRES iterations required to reach true relative
+    residual $10^{-6}$ for the 2D FD/PML experiments. The vertical axis is
+    logarithmic because the iteration count grows from about $70$ iterations
+    for $16\to32$ to about $2000$ iterations for the $64\to128$ long probe.
+    Learned zero-PML warm starts give small but consistent iteration savings.}
+    \label{fig:results-2d-adaptive-iters-all-pairs}
+\end{figure}
+
+\begin{figure}[htbp]
+    \centering
+    \resultsfigure[width=0.72\linewidth]{figures/ch7/2d_adaptive_summary/2d_adaptive_iteration_savings.png}
+    \caption{Iteration saving of the best learned zero-PML warm start relative
+    to the cold start in the adaptive 2D FD/PML runs. The absolute saving grows
+    with frequency, but the relative saving decreases because the underlying
+    Krylov problem becomes much harder.}
+    \label{fig:results-2d-adaptive-savings}
+\end{figure}
+
+\begin{figure}[htbp]
+    \centering
+    \resultsfigure[width=\linewidth]{figures/ch7/2d_adaptive_16_32/2d_16_32_true_residual_convergence_mean.png}
+    \caption{Mean true-residual convergence curves for the adaptive
+    $16\to32$ FD/PML experiment. Curves show the sample mean over ten test
+    right-hand sides, with shaded interquartile bands. This plot shows the
+    residual decay directly; the learned zero-PML starts cross the tolerance
+    a few iterations before the cold start on average.}
+    \label{fig:results-2d-adaptive-16-32-curves}
+\end{figure}
+
+Table~\ref{tab:results-2d-adaptive-all-pairs} and
+Figures~\ref{fig:results-2d-adaptive-iters-all-pairs}--\ref{fig:results-2d-adaptive-16-32-curves}
+show that the adaptive convergence result is positive but modest. For
+$16\to32$, all methods converge on all ten test problems. The best learned
+start is the depth-five zero-PML variant, with a mean of $66.9$ iterations
+compared with $69.4$ for the cold start, a saving of $2.5$ FGMRES iterations.
+For $32\to64$, the iteration count rises to roughly $347$ iterations for the
+cold start and roughly $343$ iterations for the best learned starts, a saving
+of about $4.3$ iterations on the three-sample probe. For $64\to128$, the
+one-sample long run reaches the same tolerance only after about $2073$
+iterations for the cold start and $2062$ iterations for the depth-five
+zero-PML start.
+
+The trend is therefore clear. Learned zero-PML warm starts consistently shave
+a few FGMRES iterations from the adaptive convergence run, but the relative
+benefit becomes smaller as the frequency increases: about $3.6\%$ for
+$16\to32$, about $1.2\%$ for $32\to64$, and about $0.5\%$ in the single
+$64\to128$ long probe. This is consistent with the fixed-budget evidence:
+learned starts improve the initial state, but they do not change the
+CSL-preconditioned Krylov operator. The high-frequency difficulty therefore
+remains essentially a property of the classical preconditioned system.
+
+The adaptive result should also be read together with the PML discussion
+above. The zero-PML starts used here are not a statement that the PML is
+unimportant. They are a controlled way to use the learned physical-domain
+field while avoiding unsafe learned values in the absorbing layer. In the
+fixed-budget table, the full-grid raw flux model can give the lowest final
+true residual, whereas in the adaptive convergence-to-tolerance runs the
+zero-PML variants give the smallest iteration counts among the starts tested.
+The more robust conclusion is that learned starts contain useful
+solver-facing information, while the best way to inject that information into
+CSL-FGMRES, especially in the PML region, is still not fully solved.
+
+The PML comparison is also important. For every frequency pair,
+\texttt{flux\_full\_raw} has a lower final true residual than
+\texttt{flux\_full\_zero}. Therefore, once the model is trained on the full
+FD/PML field, keeping the learned PML output is better than zeroing it in the
+primary solver-facing metric. This supports the conclusion from the
+one-dimensional PML experiment: the absorbing layer is part of the discrete
+operator, and solver-compatible learning must include it.
+
+The older depth5 model illustrates the opposite behaviour. It has useful
+interior information, but the raw PML output is harmful, especially for the
+harder pairs. For example, at $64\to128$ the old raw depth5 start has final
+true residual $15.86$, far worse than the cold-start value $0.433$. Zeroing
+the old PML output avoids this catastrophic behaviour, but it does not produce
+the best final true residual. The full-grid flux-trained model is therefore
+not merely a better field predictor. In the true-residual metric it is more
+compatible with the FD/PML solve than the PML-zeroed alternative, although the
+preconditioned residual shows that this compatibility is not complete.
+
+The two-dimensional conclusion is deliberately cautious. The neural model is a
+warm start: it chooses the initial guess $x_0$. The CSL preconditioner still
+preconditions the linear system, and FGMRES still performs the iterative solve.
+The learned model should therefore not be described as a replacement for CSL or
+as a learned preconditioner. Its current role is to provide a better initial
+state for a classical preconditioned Krylov method. In the tested 2D FD/PML
+setting, this improves the finite-budget true residual, and keeping the
+learned PML output is better than zeroing it. At the same time, the
+preconditioned-residual diagnostics show that residual compatibility is not
+fully solved. This is the precise two-dimensional analogue of the 1D message:
+learned frequency transfer is useful, but it must be made residual-aware
+before it can become a robust solver component.
+
+% ============================================================
+\section{Chapter summary}
+\label{sec:results-summary}
+% ============================================================
+
+The results support five conclusions.
+
+First, field accuracy is not solver accuracy. In the 1D Dirichlet problem, the
+raw U-Net reduces the field error substantially, but its true initial residual
+can be much larger than the cold-start residual. The analytical Dirichlet
+eigenbasis explains why:
+\[
+    c_k(r_0)=\lambda_k c_k(e_0).
+\]
+Small field errors in modes with large $|\lambda_k|$ can become large
+residual components.
+
+Second, residual-aware selection is necessary. The residual gate reduces the
+Dirichlet true residual below the cold-start value. This proves that the
+learned model contains useful solver-facing information, but also that the
+information is not uniformly safe. The residual plots with apparent gaps are
+therefore understood: they reflect different initial residual states, not a
+plotting error.
+
+Third, PML compatibility is a solver issue. In 1D PML, the flux-full model
+improves field error, true residual, and preconditioned residual
+simultaneously, while zeroing the PML can strongly worsen the residual. In 2D
+FD/PML, the same principle appears in the true-residual metric: the full-grid
+flux-trained model gives the best finite-budget true residual for all three
+tested pairs, and keeping its learned PML output is better than zeroing it.
+
+Fourth, the 2D learned fields have interpretable physical structure. The
+Voronoi-windowed diagnostic suggests that a field-trained CNN can infer
+source-centred outgoing atoms from a superposed low-frequency field, even
+without source labels or a source-separation loss. This is scientifically
+useful because it explains why the field predictions are nontrivial; it is
+also a limitation because local source-wise structure does not guarantee that
+the omitted interference terms are residual-safe.
+
+Fifth, the learned model is useful as a warm start but is not yet a learned
+preconditioner. In the 2D fixed-budget experiments, full-grid FD/PML training
+improves the finite-budget true-residual trajectory, but the
+CSL-preconditioned residual is not uniformly improved. The adaptive
+convergence-to-tolerance runs give small iteration savings across the tested
+frequency pairs: $69.4$ to $66.9$ mean iterations for $16\to32$, about
+$347.3$ to $343.0$ iterations for the $32\to64$ probe, and $2073$ to $2062$
+iterations in the single $64\to128$ long run. These numbers support the same
+interpretation: the learned field improves the initial state, but it does not
+change the underlying CSL-preconditioned Krylov process.
+
+Overall, learned frequency transfer should be viewed as a source of
+solver-relevant information, not as a drop-in replacement for Krylov methods.
+In the current experiments, the learned model changes $x_0$ and therefore
+changes the initial residual. The CSL preconditioner still defines the Krylov
+search process. The natural next step is to train or gate learned components
+to improve residuals and corrections directly, not only solution fields.

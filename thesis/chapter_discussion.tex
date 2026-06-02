@@ -1,0 +1,742 @@
+% !TEX root = ../main.tex
+% ============================================================
+% Discussion chapter
+% Revised after the 2026-05-21 discussion with Stephen Johnson and
+% the 2026-05-18 professor overview/results notes.
+%
+% Style constraints:
+% - No personal pronouns.
+% - No paragraph-style headings.
+% - No em-dashes.
+% - Booktabs only for tables.
+% - Quantitative claims are taken from the current Results chapter,
+%   local thesis notes, or meeting notes.
+% ============================================================
+
+\chapter{Discussion}
+\label{chapter:discussion}
+
+The preceding results support a deliberately narrower conclusion than the
+initial motivation of the project. Learned frequency transfer can predict
+high-frequency Helmholtz fields, and full-grid FD/PML training can improve the
+finite-budget true-residual trajectory of CSL-FGMRES. The learned model is not
+yet a competitive replacement for classical Helmholtz solvers, and the present
+evidence does not justify calling the current two-dimensional model a learned
+preconditioner. The scientific contribution is instead the identification of a
+solver-facing mechanism: field error becomes relevant to Krylov convergence
+only through the residual that the discrete operator induces.
+
+The central object is therefore not the neural network itself but the
+operator-amplified residual
+\begin{equation}
+    r_0 = b - A_H x_0 = A_H e_0,
+    \qquad
+    e_0 = u_H - x_0 .
+    \label{eq:discussion-error-residual}
+\end{equation}
+In the one-dimensional Dirichlet eigenbasis this becomes
+\begin{equation}
+    c_k(r_0) = \lambda_k c_k(e_0),
+    \label{eq:discussion-modal-amplification}
+\end{equation}
+as derived in Section~\ref{sec:ch5-residual-amplification} and measured in
+Section~\ref{sec:results-1d}. Equation~\eqref{eq:discussion-modal-amplification}
+explains why a field-accurate warm start can be a poor algebraic initial
+state. It also explains why residual-aware learning, residual gating, and
+operator-compatible PML treatment are not optional refinements but direct
+consequences of the solver interface.
+
+The discussion is organised around seven questions. Section~\ref{sec:discussion-synthesis}
+synthesises the one-dimensional Dirichlet, one-dimensional PML, and
+two-dimensional FD/PML evidence. Section~\ref{sec:discussion-what-works}
+states what the current method achieves. Section~\ref{sec:discussion-what-fails}
+states what it does not achieve. Section~\ref{sec:discussion-classical}
+positions the work against classical Helmholtz alternatives, including the
+Green's-function and low-rank baselines that are especially strong in the
+linear homogeneous case. Section~\ref{sec:discussion-amortisation} discusses
+training cost and the application regimes in which the cost could be
+amortised. Section~\ref{sec:discussion-limitations} records threats to
+validity. Section~\ref{sec:discussion-future} gives the research programme
+that follows most directly from the results.
+
+% ============================================================
+\section{Synthesis of the evidence}
+\label{sec:discussion-synthesis}
+% ============================================================
+
+The empirical record across the three solver settings is best read as one
+phenomenon observed under progressively fewer simplifying assumptions. The
+Dirichlet experiment supplies the exact modal identity
+\eqref{eq:discussion-modal-amplification}. The one-dimensional PML experiment
+removes the self-adjoint eigenbasis and tests whether the same residual
+diagnostics survive when the absorbing layer is part of the operator. The
+two-dimensional FD/PML experiment is the deployment setting, with a
+complex-valued, non-normal operator on a $512\times512$ grid.
+
+Three results are directly predicted by the theory.
+
+\textit{Field accuracy is not residual accuracy.} In the 1D Dirichlet
+$16\to32$ problem, the raw U-Net has field error $0.071$ but true initial
+residual $12.81\|b\|_2$, while the cold start has true initial residual
+$\|b\|_2$ by construction. This is the clearest numerical instance of
+\eqref{eq:discussion-modal-amplification}. The field error is small in the
+solution norm, but its modal content is not residual-safe.
+
+\textit{CSL changes the residual view.} The same raw 1D Dirichlet U-Net start
+has CSL-preconditioned residual $0.173$, below the cold-start value. This does
+not contradict the large true residual. It shows that the CSL preconditioner
+filters the residual in a way that is more forgiving to some of the modes that
+the original Helmholtz operator amplifies. This distinction explains why both
+true and preconditioned residuals must be reported.
+
+\textit{PML compatibility is operator compatibility.} The absorbing layer is
+part of the discrete operator used to evaluate $b-Ax$. The one-dimensional PML
+experiment shows the extreme form of this fact: zeroing the PML output of the
+older green-function model increases the true initial residual from $1.924$ to
+$37.14$, while the flux-full model has true initial residual $0.539$. The newer
+two-dimensional flux-full results show the same principle in a more useful
+form: once the model is trained on the full FD/PML field, keeping the learned
+PML output is better than zeroing it in the final true-residual metric for all
+tested pairs.
+
+Two results were not predicted quantitatively but are consistent with the same
+framework.
+
+The first is the modest size of the warm-start iteration gain. The residual
+gate lowers the 1D Dirichlet true initial residual below the cold-start value,
+but it does not significantly change the number of CSL-FGMRES iterations. A
+warm start changes the initial residual vector; it does not change the
+preconditioned operator or the polynomial approximation problem solved by
+GMRES \cite{Saad2003}. This is why the method can improve the first part
+of the convergence curve without changing the tail.
+
+The second is the gap between exact coarse correction and learned correction.
+In the 1D in-FGMRES diagnostic, CSL alone requires mean iteration count
+$16.00$, while exact low solve plus $T_\uparrow$ with a residual gate reduces
+the count to $12.65$. Current learned residual-correction variants remain at
+approximately the CSL baseline. This is an important positive-negative result:
+the solver-aligned mechanism exists, but current learned maps do not yet
+reproduce it.
+
+\begin{table}[htbp]
+\centering
+\caption{Solver-facing interpretation of the main evidence.}
+\label{tab:discussion-evidence-map}
+\begin{tabular}{lll}
+\toprule
+Setting & Main observation & Interpretation \\
+\midrule
+1D Dirichlet & Field error $0.071$, true residual $12.81$ & Modal residual amplification \\
+1D Dirichlet gate & True residual lowered to $0.708$ & Useful and harmful modes coexist \\
+1D exact correction & Iterations $16.00\to12.65$ & Solver-aligned coarse action exists \\
+1D learned correction & Iterations stay near $16$ & Present learned target is insufficient \\
+1D PML & Flux-full residual $0.539$ & PML must be learned as operator data \\
+2D FD/PML & Flux-full raw gives best final true residual & Full-grid training helps solver trajectory \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Table~\ref{tab:discussion-evidence-map} gives the compact version. The thesis
+does not show that a generic neural frequency-transfer model is a good
+preconditioner. It shows that residual amplification is the reason field
+transfer and solver acceleration diverge, and it identifies the solver-aligned
+object that a successful learned correction must imitate.
+
+% ============================================================
+\section{What the current method achieves}
+\label{sec:discussion-what-works}
+% ============================================================
+
+The present method is a learned warm start for CSL-FGMRES. Under that
+definition it achieves four useful things.
+
+\subsection{It learns nontrivial cross-frequency structure}
+\label{subsec:discussion-cross-frequency}
+
+The field-prediction results show that the learned models exploit information
+in the low-frequency solution. The one-dimensional Dirichlet U-Net reaches a
+small field loss in the clean proof setting. The two-dimensional flux-full
+TransferUNet reaches full-grid validation RelL2 values of approximately
+$0.240$, $0.321$, and $0.339$ for $16\to32$, $32\to64$, and $64\to128$,
+respectively. These errors are far above the residual-safety threshold for a
+general preconditioner, but they are far below the zero predictor and establish
+that the cross-frequency map is learnable.
+
+This point matters because it separates the negative solver results from a
+trivial learning failure. The learned map is not useless. It captures
+physically meaningful cross-frequency structure, but the captured structure is
+not automatically aligned with the residual norm used by the solver.
+
+\subsection{It improves finite-budget true residuals in 2D FD/PML}
+\label{subsec:discussion-2d-success}
+
+The latest two-dimensional beta-$0.3$ evaluation uses $10$ test right-hand
+sides per frequency pair and $40$ CSL-FGMRES iterations. No method reaches the
+tolerance within the budget, so the meaningful comparison is the residual
+after the fixed budget. In that metric, the full-grid flux-trained warm start
+has the lowest final true residual for all three pairs:
+\[
+    2.05\times10^{-3} \to 4.22\times10^{-4}
+    \quad (16\to32),
+\]
+\[
+    3.83\times10^{-1} \to 3.28\times10^{-1}
+    \quad (32\to64),
+\]
+and
+\[
+    4.33\times10^{-1} \to 3.79\times10^{-1}
+    \quad (64\to128).
+\]
+The gains are not dramatic at the harder pairs, but they are consistent in the
+primary true-residual metric.
+
+This is the strongest current two-dimensional claim. The method can be called
+a useful warm start in the tested FD/PML setting, provided that ``useful'' is
+understood as a finite-budget residual improvement rather than convergence
+acceleration to tolerance.
+
+\subsection{It shows that full-grid FD/PML training fixes part of the PML pathology}
+\label{subsec:discussion-pml-fix}
+
+The older interior-focused depth5 model had good physical-interior field
+errors but harmful raw PML output. In the older N5/K20 snapshot, zeroing the
+PML strip could turn a harmful learned field into a useful warm start for
+$16\to32$. That conclusion no longer describes the best current model. The
+newer flux-full model is trained against the full FD/PML solution, including
+the absorbing layer, and keeping its PML output gives better final true
+residuals than zeroing it.
+
+The corrected interpretation is therefore not that the PML should be zeroed.
+It is that the PML must be controlled. For an interior-only model, zeroing can
+be a safety patch. For a full-grid FD/PML model, zeroing destroys part of the
+operator-compatible output. This distinction is a useful methodological result
+for learned Helmholtz solvers with absorbing boundaries.
+
+\subsection{It produces an architecture-independent diagnostic}
+\label{subsec:discussion-diagnostic}
+
+The residual-amplification identity is independent of whether the field was
+produced by a U-Net, a dilated CNN, a Fourier neural operator, or a classical
+interpolant. Any approximate high-frequency field used as an initial guess
+induces a residual through $A_H e_0$. The architecture affects the error
+distribution, but the operator decides how that error is seen by the solver.
+
+This is why the main contribution survives the modest iteration gains. The
+diagnostic tells which learned outputs are solver-safe, why some accurate
+fields are harmful, and what a residual-aware extension must target.
+
+% ============================================================
+\section{What the current method does not achieve}
+\label{sec:discussion-what-fails}
+% ============================================================
+
+The same evidence imposes sharp limits on the claims.
+
+\subsection{A warm start does not change the Krylov tail}
+\label{subsec:discussion-warm-tail}
+
+A warm start changes $r_0$ but not the spectrum or pseudospectrum of the
+preconditioned operator. Once the initial residual has been processed, the
+remaining convergence is controlled by the CSL-preconditioned FGMRES process.
+This explains the repeated observation that early residual behaviour can
+improve without a large iteration-count reduction. In practical terms, a warm
+start can be expected to help the first few iterations, but the expensive tail
+from moderate residual to tight tolerance remains a classical Krylov problem.
+
+This point is especially important for the defence of the method. The present
+warm-start result should not be advertised as a factor-of-ten solver
+acceleration. It is an initial-state improvement and a diagnostic step toward
+a residual-trained correction.
+
+\subsection{The current learned correction does not imitate the exact coarse action}
+\label{subsec:discussion-learned-correction-fails}
+
+The exact-coarse diagnostic is the strongest evidence that a solver-aligned
+frequency-transfer mechanism can reduce FGMRES work. It also reveals the
+current gap. Learned residual-loss correction, scalar alpha rescaling, and
+learned restriction through $T_\uparrow$ do not reproduce the useful modal
+action of the exact correction. The learned restriction gate accepting almost
+no modes is particularly informative: the learned map is not aligned with the
+coarse correction that CSL-FGMRES can exploit.
+
+The failure should not be interpreted as a generic failure of learning. It is
+more specific. A solution-trained map, and even a generic residual-loss map,
+does not necessarily learn the scale, phase, and modal selectivity of the
+accepted exact coarse correction. The next training target must imitate that
+solver-relevant action directly.
+
+\subsection{The preconditioned residual is not uniformly solved}
+\label{subsec:discussion-precond-residual}
+
+The 2D flux-full warm start improves final true residuals, but the
+preconditioned residual tells a more complicated story. For $64\to128$, the
+raw full-grid learned start has initial preconditioned residual $18.41$ and
+final preconditioned residual $28.51$, while still giving the best final true
+residual. This means that the learned output is not uniformly compatible with
+the coordinates seen by the CSL-preconditioned Krylov process.
+
+This is the practical reason for retaining a cautious label. The method is a
+warm start, not a learned preconditioner. A preconditioner claim would require
+robust improvement in the residual norms relevant to the Krylov process and
+would need to hold inside the iteration, not only at the initial state.
+
+\subsection{High-frequency behaviour remains fragile}
+\label{subsec:discussion-high-frequency}
+
+The highest pair, $64\to128$, remains the stress test. The flux-full model has
+the best final true residual after $40$ iterations, but the improvement over
+cold start is modest and the preconditioned residual is unfavourable. This is
+consistent with the threshold story: as frequency increases, the solver-safe
+field-error budget becomes tighter, while fixed training objectives do not
+automatically place the remaining error in benign modes.
+
+The correct conclusion is not that high-frequency learned transfer is solved.
+The correct conclusion is that the current high-frequency result confirms the
+need for residual-aware training and conservative acceptance tests.
+
+% ============================================================
+\section{Comparison with classical alternatives}
+\label{sec:discussion-classical}
+% ============================================================
+
+The strongest criticism of learned frequency transfer in the linear
+homogeneous setting is not that the learned model fails to learn. It is that
+classical methods already exploit linearity, superposition, and Green's
+function structure extremely well. A fair discussion must therefore compare
+against methods that use the same structure, not only against weak generic
+preconditioners.
+
+\subsection{Complex shifted Laplacian}
+\label{subsec:discussion-csl}
+
+CSL remains the backbone solver in this thesis. It changes the indefinite
+Helmholtz problem into a shifted system by adding an imaginary damping term,
+and the learned model only changes the initial guess supplied to the
+CSL-preconditioned Krylov method \cite{Erlangga2004}. The present results are
+therefore complementary to CSL rather than competitive with it. CSL shapes the
+iteration; the learned model attempts to make the starting residual more
+favourable.
+
+This distinction should remain explicit. Any claim that the neural model
+``beats CSL'' would be inaccurate, because CSL is still the preconditioner in
+the successful experiments.
+
+\subsection{Green's-function quadrature for the linear homogeneous problem}
+\label{subsec:discussion-greens-quadrature}
+
+For a fixed homogeneous linear Helmholtz operator, the solution is a
+convolution with a Green's function. If the source is smooth or if the quantity
+of interest is away from the source, a classical quadrature or spectral
+expansion can approximate the solution from a modest number of precomputed
+responses. A Chebyshev or Clenshaw-Curtis construction uses a small set of
+quadrature-point solves, obtains coefficients by a cosine transform, and
+forms new solutions by linear combination of the precomputed Green's-function
+responses.
+
+This baseline is much stronger than a cold-start iterative solve when its
+assumptions hold. It preserves linearity exactly, needs far fewer than the
+approximately $9600$ training solves used per pair in the current neural
+datasets, and can converge rapidly for smooth source classes. In that regime,
+the present learned model is not the most efficient way to approximate the
+linear solution map.
+
+The relevance of this comparison is conceptual as well as practical. Neural
+networks can accidentally discard linear structure that the PDE gives for
+free. The value of a learned component must therefore come from regimes where
+linearity, smoothness, low dimensionality, or explicit Green's functions no
+longer provide the dominant shortcut.
+
+\subsection{Randomised low-rank Green's-function surrogates}
+\label{subsec:discussion-low-rank}
+
+Even when an explicit Green's function is unavailable, fixed linear wave
+operators often have low-rank off-diagonal Green's-function blocks. Randomised
+probing and truncated low-rank approximation can exploit this structure with a
+number of solves proportional to the numerical rank rather than to the number
+of possible right-hand sides. Hierarchical and sweeping methods rely on the
+same broad fact: wave propagation has exploitable structure away from local
+singular interactions \cite{Engquist2011}.
+
+This is another reason the training-cost question is severe in the linear
+case. A learned surrogate trained from thousands of full solves must be
+amortised across a very large number of future solves, or it must handle a
+regime where the low-rank linear surrogate is inadequate.
+
+\subsection{Frequency-sweep and subspace-recycling methods}
+\label{subsec:discussion-recycling}
+
+The thesis motivation is cross-frequency reuse. Classical Krylov methods also
+reuse information across nearby linear systems through subspace recycling,
+deflation, and rational approximation. GCRO-DR and related recycled Krylov
+methods use approximate invariant subspaces from earlier solves, while
+rational or Padé approximants exploit analytic dependence on frequency for
+families of shifted systems \cite{ParksEtAl2006}. These methods are natural
+competitors for any linear frequency-transfer approach.
+
+The present neural approach differs by learning a direct nonlinear map between
+solution fields rather than recycling a linear subspace. That distinction is
+not automatically an advantage in the linear setting. It becomes more
+interesting when the parameter dimension grows, the source distribution is
+non-smooth or widely scattered, or the governing equation becomes nonlinear.
+
+\subsection{Where the learned approach may have a fair opening}
+\label{subsec:discussion-fair-opening}
+
+The classical baselines are strongest for fixed linear operators, smooth or
+low-dimensional source families, far-field quantities of interest, and tight
+accuracy requirements. The learned approach has a more plausible role when
+one or more of those assumptions fails:
+\begin{itemize}
+    \item non-smooth sources distributed throughout the domain,
+    \item close-to-source quantities where low-order far-field moments are
+    insufficient,
+    \item many interacting parameters rather than one or two frequency-like
+    parameters,
+    \item tolerance targets closer to a few percent than to machine precision,
+    \item nonlinear wave equations without a Green's function or
+    superposition.
+\end{itemize}
+
+This list should guide the interpretation of the thesis. The linear FD/PML
+study is not the final application where learned transfer is most competitive.
+It is the baseline difficulty test that a learned method must pass before the
+nonlinear or high-parameter setting is credible.
+
+% ============================================================
+\section{Training cost and amortisation}
+\label{sec:discussion-amortisation}
+% ============================================================
+
+The cost of training is a first-order limitation. The current two-dimensional
+datasets use $9600$ exact FD/PML solves per frequency pair. Such a cost can be
+justified only if the trained model is reused across many subsequent solves or
+if the trained model enables a regime that classical methods cannot handle.
+
+\subsection{The fixed-operator requirement}
+\label{subsec:discussion-fixed-operator}
+
+The most favourable linear use case is a fixed operator with many right-hand
+sides. The medium, grid, boundary treatment, and frequency pair must remain
+unchanged enough that the trained map can be reused. If the medium changes
+after each solve, as in many full-waveform inversion workflows, the amortised
+value of a fixed trained model becomes much weaker.
+
+This does not make the training programme invalid, but it narrows the
+practical claim. The current method is most plausible for repeated fixed-
+medium query settings, design libraries, monitoring problems with a stable
+background operator, or offline surrogate construction in which many future
+right-hand sides are expected.
+
+\subsection{Data efficiency is part of the solver claim}
+\label{subsec:discussion-data-efficiency}
+
+Solver acceleration cannot be judged only by per-solve iteration count. The
+total cost includes data generation, training, evaluation, and any classical
+preconditioner still used during deployment. A warm start that saves one or
+two FGMRES iterations is not economically meaningful if it required thousands
+of training solves and is reused only a small number of times.
+
+The thesis results therefore suggest a practical reporting standard for future
+work: every learned solver component should report not only residual reduction
+and iteration count, but also training solves, high-fidelity labels required,
+and the break-even number of deployment solves. This would make the
+amortisation assumption visible rather than implicit.
+
+\subsection{Source priors may reduce the cost}
+\label{subsec:discussion-source-priors}
+
+The present datasets draw sources from a broad interior distribution. Real
+applications often have much sharper source priors, such as antenna edges,
+localized emitters, repeated sensor layouts, or clustered forcing regions.
+Restricting the source distribution can reduce the complexity of the learned
+map and therefore the number of training solves required. This is not a result
+demonstrated in the thesis, but it is a concrete way to test whether the cost
+barrier can be softened without changing the solver method.
+
+\subsection{The nonlinear amortisation argument}
+\label{subsec:discussion-nonlinear-amortisation}
+
+The most compelling long-term cost argument is not the linear homogeneous
+case. In nonlinear wave problems there is no Green's function, no
+superposition, and no direct quadrature over precomputed linear responses.
+Newton-type methods may also require a good initial state to converge at all,
+not merely to converge faster. In that regime, a learned warm start can become
+a feasibility mechanism rather than a marginal iteration-saving device.
+
+The linear study is therefore defensible as a baseline of difficulty. If
+learned frequency transfer cannot produce useful structure in the linear case,
+then a nonlinear extension has little chance. The open scientific question is
+whether the classical-versus-learned difficulty gap shrinks as nonlinearity
+grows. Classical Green's-function methods become much less applicable; neural
+surrogates may become only moderately harder because nonlinearity is already
+part of the model class.
+
+% ============================================================
+\section{Limitations and threats to validity}
+\label{sec:discussion-limitations}
+% ============================================================
+
+\subsection{Linear homogeneous physics}
+\label{subsec:discussion-limit-linear}
+
+The main experiments use homogeneous linear Helmholtz systems. This makes the
+operator-theoretic analysis clean and the exact-solve datasets reproducible,
+but it also gives classical methods the maximum possible advantage. The thesis
+does not demonstrate that learned frequency transfer is competitive with
+Green's-function or low-rank methods in this regime. It demonstrates a
+residual-amplification mechanism and a warm-start effect inside a controlled
+linear baseline.
+
+\subsection{Warm start rather than preconditioner}
+\label{subsec:discussion-limit-warmstart}
+
+The two-dimensional learned model sets $x_0$ and then leaves CSL-FGMRES to
+solve the system. It is not applied as $M^{-1}$ inside each Krylov iteration.
+The results therefore establish warm-start behaviour only. A learned
+preconditioner claim would require residual-to-correction training on Krylov
+states and evaluation inside FGMRES.
+
+\subsection{Limited sample size and frequency coverage}
+\label{subsec:discussion-limit-samples}
+
+The main two-dimensional beta-$0.3$ solver evaluation uses $10$ test
+right-hand sides per pair and three dyadic pairs:
+$16\to32$, $32\to64$, and $64\to128$. These runs are sufficient to support the
+reported qualitative ordering, but they do not provide tight confidence
+intervals over source distributions, random training seeds, or alternative
+frequency ratios.
+
+\subsection{Single main CSL damping}
+\label{subsec:discussion-limit-beta}
+
+The final discussion focuses on $\beta=0.3$. Earlier beta-$0.1$ runs show
+compatible qualitative trends, but the thesis does not contain a systematic
+modern beta sweep for the flux-full model. Any claim about the method should
+therefore be read at fixed CSL damping. The learned warm start and the
+classical preconditioner interact, and changing $\beta$ can change the
+residual modes that matter.
+
+\subsection{Non-normal PML operator}
+\label{subsec:discussion-limit-nonnormal}
+
+The Dirichlet modal analysis relies on an orthonormal eigenbasis. The PML
+operator is complex-valued and non-normal, so eigenvalues alone do not control
+transient behaviour or residual amplification. Pseudospectral effects can
+make a residual component large even when eigenvalue plots look benign
+\cite{TrefethenEmbree2005}. This is why the 1D PML and 2D FD/PML sections rely on
+direct residual diagnostics rather than claiming a full modal theory.
+
+\subsection{Architecture coverage}
+\label{subsec:discussion-limit-architecture}
+
+The two-dimensional solver-facing model is a TransferUNet. The older
+architecture comparison shows that the dilated CNN and U-Net are broadly
+comparable in field-error scaling, but the thesis does not provide a
+two-dimensional solver-facing comparison against Fourier neural operators,
+transformers, or graph-based neural operators. The residual-amplification
+diagnostic is architecture-independent, but the achieved residual distribution
+is not proven architecture-independent.
+
+\subsection{Tool-first research framing}
+\label{subsec:discussion-limit-tool-first}
+
+The project began as an investigation of whether convolutional neural networks
+could learn frequency transfer. That is a tool-first research mode. The risk
+is that the tool may be applied to a problem where classical structure is
+already superior. The scientific value of the thesis is that the tool-first
+investigation exposed a problem-first mechanism: residual amplification is the
+constraint that any learned or classical transfer approximation must satisfy
+before it becomes solver-useful.
+
+% ============================================================
+\section{Future research directions}
+\label{sec:discussion-future}
+% ============================================================
+
+\subsection{Residual-aware warm-start training}
+\label{subsec:discussion-future-residual}
+
+The most direct next experiment is to replace pure field loss with a
+residual-aware objective:
+\begin{equation}
+    \mathcal{L}_{\mathrm{res}}
+    =
+    \frac{\|A_H \hat{u}_H - b\|_2^2}{\|b\|_2^2+\varepsilon}.
+    \label{eq:discussion-residual-loss}
+\end{equation}
+This loss asks the network to satisfy the discrete high-frequency equation,
+not only to match the solution field. The current results suggest that this
+objective should be evaluated by initial true residual, initial
+preconditioned residual, final true residual, and residual area under the
+FGMRES curve, not by field error alone.
+
+Generic residual loss may still be insufficient, as the 1D learned correction
+experiments indicate. The stronger version is a weighted residual loss that
+emphasises modes surviving late in CSL-FGMRES:
+\begin{equation}
+    \mathcal{L}_{\mathrm{late}}
+    =
+    \sum_k w_k
+    \left|
+    \left\langle v_k, A_H e_\theta \right\rangle
+    \right|^2,
+    \label{eq:discussion-late-mode-loss}
+\end{equation}
+where $w_k$ is large for residual modes that remain after several CSL-FGMRES
+iterations. In the Dirichlet setting the weights can be defined spectrally. In
+the PML setting they should be defined through measured Krylov residuals or
+through a pseudospectral proxy.
+
+\subsection{Exact-coarse imitation}
+\label{subsec:discussion-future-exact-coarse}
+
+The exact low solve plus $T_\uparrow$ residual gate is the current proof of
+mechanism. The most targeted learned extension is therefore not simply
+``train on residuals'' but imitate the accepted modal action of this exact
+coarse correction. The target should match scale, phase, and the subset of
+modes that reduce the residual after CSL has done its part.
+
+A clean 1D ablation would compare five objectives:
+\begin{itemize}
+    \item field loss,
+    \item unweighted residual loss,
+    \item spectral residual loss,
+    \item late-CSL weighted residual loss,
+    \item exact-coarse imitation loss.
+\end{itemize}
+The win condition should be fewer CSL-FGMRES iterations or lower final true
+residual at fixed iteration budget. A prettier field is not the win condition.
+
+\subsection{Residual-to-correction data from Krylov states}
+\label{subsec:discussion-future-rescorr}
+
+The two-dimensional preconditioner extension should train on the object seen
+inside Krylov: residuals and corrections, not complete solution fields. The
+natural dataset consists of tuples
+\[
+    (r_k, e_k),
+    \qquad
+    A_H e_k = r_k,
+\]
+or practical variants based on CSL-corrected residuals. These tuples should be
+generated from actual CSL-FGMRES states under the full FD/PML operator, with
+the PML region included. Training on such data would align the deployment
+distribution with the training distribution.
+
+The learned correction should be used conservatively. A residual gate can
+accept a proposed correction only if it decreases the true residual, the
+preconditioned residual, or both. Such a gate is computationally more
+expensive than a blind neural step, but it preserves the main lesson of the
+thesis: learned components must be judged by the residual the solver sees.
+
+\subsection{Hybrid physics-enhanced surrogates}
+\label{subsec:discussion-future-peds}
+
+The most promising long-term architecture is hybrid rather than purely
+neural. A classical low-fidelity or coarse solver can handle the part of the
+problem already understood, while a neural network learns the correction that
+the classical model misses. Physics-enhanced deep surrogates follow this
+template by embedding a low-fidelity physics simulator inside an end-to-end
+trained surrogate and have been reported to reduce data requirements
+substantially for PDE surrogate tasks \cite{PestourieEtAl2023PEDS}.
+
+For frequency transfer, the low-fidelity component could be a coarse-grid
+solve, a quadrature Green's-function approximation, a low-rank surrogate, or a
+CSL correction. The network would then learn the residual correction rather
+than the whole solution map. This design answers the training-cost criticism
+more directly than a standalone neural field predictor, because it preserves
+as much classical structure as possible.
+
+\subsection{Nonlinear wave extensions}
+\label{subsec:discussion-future-nonlinear}
+
+The nonlinear extension is the most important application-level direction.
+For nonlinear frequency-domain wave equations, superposition fails and Green's
+function convolution is unavailable. Classical perturbative methods can handle
+weak nonlinearities, but strongly nonlinear regimes may require good initial
+states for Newton or continuation methods to converge. A learned frequency
+transfer map could then supply a feasibility-enabling initial guess rather
+than a marginal acceleration.
+
+The thesis results define the entry test for that programme. The learned model
+must first pass the linear baseline, including residual compatibility. The
+next question is whether adding nonlinearity makes classical methods much
+harder while making the learned map only moderately harder. If that gap
+shrinks as nonlinearity grows, learned frequency transfer becomes a more
+natural tool.
+
+\subsection{Source-conditioned and prior-aware models}
+\label{subsec:discussion-future-source}
+
+The current two-dimensional flux-full model maps low-frequency fields to
+high-frequency fields without explicit source channels in the main trained
+model. The datasets store source information, and a source-conditioned model
+is a natural extension. Source channels can help distinguish fields that look
+similar at low frequency but require different high-frequency corrections near
+the source. Source priors can also reduce training cost by focusing the model
+on physically relevant forcing distributions.
+
+\subsection{Architecture-independence tests}
+\label{subsec:discussion-future-architecture}
+
+The residual-amplification threshold predicts that different architectures
+with matched residual spectra should behave similarly as warm starts, even if
+their field errors differ. A two-dimensional comparison against a Fourier
+neural operator would test whether the current observations are U-Net-specific
+or operator-level. The experiment should match training data, loss, source
+distribution, and solver evaluation protocol. The metric should be residual
+behaviour, not only field RelL2 \cite{LiEtAl2021FNO}.
+
+\subsection{Three-dimensional deployment}
+\label{subsec:discussion-future-3d}
+
+Three-dimensional Helmholtz problems are the real target in seismic,
+photonic, and acoustic applications. The computational savings from a useful
+warm start or correction could be much larger there, but the residual-safety
+threshold is also expected to be sharper because the systems are larger and
+more indefinite. A three-dimensional extension is therefore not a routine
+scaling exercise. It is a new test of whether the learned correction can meet
+a stricter operator-amplification constraint.
+
+% ============================================================
+\section{Closing interpretation}
+\label{sec:discussion-closing}
+% ============================================================
+
+The thesis began with the observation that adjacent Helmholtz frequencies are
+not independent. A low-frequency solution contains information about the
+corresponding high-frequency solution, and a neural network can learn part of
+that map. The results show that this observation is true but incomplete. A
+Krylov solver does not consume visual similarity, field RelL2, or
+cross-frequency coherence directly. It consumes residuals.
+
+The core contribution is therefore a change in the question. The important
+question is not whether a network can predict the high-frequency field. The
+important question is whether the error in that prediction lies in directions
+that the discrete high-frequency operator and the CSL-preconditioned Krylov
+process can tolerate. The answer is sometimes yes, often only after
+residual-aware selection, and not yet strongly enough to claim a learned
+preconditioner.
+
+This is a useful endpoint for a thesis because it turns an initially broad
+neural-solver idea into a falsifiable numerical-analysis statement. Learned
+frequency transfer is solver-useful when the induced residual clears the
+operator-amplification barrier. Field loss alone does not enforce that
+condition. The next method should therefore be residual-aware, PML-compatible,
+and hybrid with the classical solvers that already solve the parts of the
+linear problem that learning should not relearn.
+
+\todo[inline]{Bibliography checks before final compile: add or verify entries
+for \texttt{Erlangga2004}, \texttt{Engquist2011},
+\texttt{ParksEtAl2006}, \texttt{PestourieEtAl2023PEDS}, and
+\texttt{LiEtAl2021FNO}. The PEDS article is Pestourie, Mroueh, Rackauckas,
+Das, and Johnson, ``Physics-enhanced deep surrogates for partial differential
+equations,'' Nature Machine Intelligence 5, 1458 to 1465, 2023,
+DOI 10.1038/s42256-023-00761-y.}
+
+\todo[inline]{Number checks before submission: verify the 2D beta-$0.3$ table
+against the final CSVs under the frozen checkpoint evaluation. The values used
+here match the current \texttt{chapter\_results\_after\_kees.tex} draft and
+the local 2026-05-10/2026-05-18 notes.}
+

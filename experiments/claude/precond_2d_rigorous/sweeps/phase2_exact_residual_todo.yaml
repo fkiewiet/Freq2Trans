@@ -1,0 +1,29 @@
+# Planning file only. Do not submit with precond_v3/sweep.py yet.
+#
+# Exact residual loss is deliberately blocked until a regenerated dataset stores
+# full complex source data and the training code computes A_high u_pred - f with
+# the same FD/PML operator used in benchmark_warmstart_unet.py.
+
+sweep_id: phase2_exact_residual_after_regeneration
+blocked_by:
+  - regenerate audited FD/PML-compatible dataset
+  - store source_re.npy and source_im.npy
+  - add exact residual loss implementation
+  - audit residual scale before training
+
+candidate_runs:
+  - id: source_full_field
+    input: u_low + complex_source
+    loss: field_full_grid
+    pair_priority: ["32_64", "16_32", "64_128"]
+
+  - id: source_full_exact_residual_w1e-4
+    input: u_low + complex_source
+    loss: field_full_grid + 1e-4 * exact_residual
+    pair_priority: ["32_64", "16_32", "64_128"]
+
+  - id: source_full_exact_residual_w1e-3
+    input: u_low + complex_source
+    loss: field_full_grid + 1e-3 * exact_residual
+    pair_priority: ["32_64", "16_32", "64_128"]
+

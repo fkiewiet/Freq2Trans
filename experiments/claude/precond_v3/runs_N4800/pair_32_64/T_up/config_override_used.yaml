@@ -1,0 +1,9 @@
+outdir: experiments/claude/precond_v3/runs_N4800
+datasets:
+  up_dir: experiments/claude/datasets/up_N4800_seed42
+  down_dir: experiments/claude/datasets/down_N4800_seed42
+split:
+  n_train: 3500
+  n_val: 650
+  n_test: 650
+  seed: 42

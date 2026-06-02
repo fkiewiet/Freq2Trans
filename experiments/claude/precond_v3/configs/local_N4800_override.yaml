@@ -1,0 +1,14 @@
+# Local override for wave7a/wave7b — N=4800 dataset, local outdir.
+# Use with: --override_config experiments/claude/precond_v3/configs/local_N4800_override.yaml
+
+outdir: /tmp/fkiewiet/precond_v3_N4800
+
+datasets:
+  up_dir:   experiments/claude/datasets/up_N4800_seed42
+  down_dir: experiments/claude/datasets/down_N4800_seed42
+
+split:
+  n_train: 3500
+  n_val:   650
+  n_test:  650
+  seed:    42

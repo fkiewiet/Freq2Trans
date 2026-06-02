@@ -1,0 +1,54 @@
+{
+  "16": {
+    "omega": 16,
+    "sigma_adapt": 42.4875,
+    "sigma_max_analytical": 256.0,
+    "sigma_max_num_const": 256.0016619039213,
+    "sigma_min_const": 248.002825499593,
+    "kappa_const": 1.0322530051349814,
+    "kappa_analytical_const": 1.0322463039858396,
+    "sigma_max_num_adapt": 255.99925032006422,
+    "sigma_min_adapt": 248.0026181764249,
+    "kappa_adapt": 1.032244144043474,
+    "kappa_analytical_adapt": 1.032247166914528
+  },
+  "32": {
+    "omega": 32,
+    "sigma_adapt": 68.7347,
+    "sigma_max_analytical": 1024.0,
+    "sigma_max_num_const": 1023.9992506230034,
+    "sigma_min_const": 1016.002617314885,
+    "kappa_const": 1.0078706817992773,
+    "kappa_analytical_const": 1.0078714193731613,
+    "sigma_max_num_adapt": 1023.9990675160738,
+    "sigma_min_adapt": 1016.0025489620355,
+    "kappa_adapt": 1.0078705693821415,
+    "kappa_analytical_adapt": 1.007871487178979
+  },
+  "64": {
+    "omega": 64,
+    "sigma_adapt": 111.1964,
+    "sigma_max_analytical": 4096.0,
+    "sigma_max_num_const": 4095.998898804523,
+    "sigma_min_const": 4088.0023863442066,
+    "kappa_const": 1.0019560929042088,
+    "kappa_analytical_const": 1.001956362276722,
+    "sigma_max_num_adapt": 4095.998967787864,
+    "sigma_min_adapt": 4088.002478341972,
+    "kappa_adapt": 1.00195608723044,
+    "kappa_analytical_adapt": 1.0019563397283633
+  },
+  "128": {
+    "omega": 128,
+    "sigma_adapt": 179.8894,
+    "sigma_max_analytical": 16384.0,
+    "sigma_max_num_const": 16383.998833909513,
+    "sigma_min_const": 16376.002136151796,
+    "kappa_const": 1.0004883180700168,
+    "kappa_analytical_const": 1.0004883892772918,
+    "sigma_max_num_adapt": 16383.998909880696,
+    "sigma_min_adapt": 16376.002405897993,
+    "kappa_adapt": 1.000488306229109,
+    "kappa_analytical_adapt": 1.0004883727972051
+  }
+}

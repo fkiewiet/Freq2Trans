@@ -1,0 +1,12 @@
+{
+  "dataset": "/math/home/fkiewiet/Freq2Transfer/experiments/claude/datasets/up_N4800_seed42",
+  "pair_idx": 0,
+  "pair": [
+    16,
+    32
+  ],
+  "split_seed": 42,
+  "n_train": 3500,
+  "n_val": 650,
+  "n_test": 650
+}

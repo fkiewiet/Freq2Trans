@@ -1,0 +1,28 @@
+{
+  "n": 512,
+  "npml": 112,
+  "domain_length": 1.0,
+  "dirichlet_grid": true,
+  "pml_power": 2.0,
+  "sigma_scale": 1.0,
+  "sigma_g": 2.0,
+  "csl_beta": 0.3,
+  "train_samples": 2000,
+  "val_samples": 400,
+  "test_samples": 20,
+  "gmres_samples": 10,
+  "seed": 777,
+  "dx": 0.001949317738791423,
+  "n_interior": 288,
+  "n_grid": 512,
+  "omega_l": 16.0,
+  "omega_h": 32.0,
+  "n_samples": 2400,
+  "problem": "1d_dirichlet_residual_correction",
+  "down_map": "r_H_over_rscale -> e_L_over_rscale",
+  "up_map": "e_L_over_elscale -> e_H_over_elscale",
+  "sample_mix": {
+    "zero_start_error": 1200,
+    "synthetic_modal_error": 1200
+  }
+}

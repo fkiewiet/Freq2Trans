@@ -1,0 +1,64 @@
+{
+  "pair": [
+    64,
+    128
+  ],
+  "pair_idx": 2,
+  "direction": "up",
+  "dataset": "/tmp/fkiewiet/datasets_N9600/up_N9600_seed42",
+  "config_path": "experiments/claude/precond_v3/configs/pair_64_128.yaml",
+  "override_config_path": "/tmp/precond_v3_up_64_128_13355467_override.yaml",
+  "resolved_config_path": "/orcd/scratch/orcd/006/fkiewiet/freq2transfer/precond_v3_sweeps/phase1_residual_up_20260501/residual_w1e-4_base32/pair_64_128/T_up/config_resolved.yaml",
+  "split_seed": 42,
+  "n_train": 7000,
+  "n_val": 1300,
+  "n_test": 1300,
+  "last_epoch": 277,
+  "last_train_loss": 14781545.16,
+  "last_val_loss": 456.59857177734375,
+  "best_epoch": 217,
+  "best_val_loss": 353.67474365234375,
+  "test_loss_at_best": 353.67474365234375,
+  "stopped_reason": "runtime_cap",
+  "model": {
+    "base_ch": 32,
+    "levels": 4
+  },
+  "training": {
+    "epochs": 1000,
+    "batch_size": 4,
+    "lr": 0.0003,
+    "weight_decay": 0.0001,
+    "lr_patience": 40,
+    "lr_factor": 0.5,
+    "lr_threshold": 0.0001,
+    "early_stop_patience": 10000,
+    "num_workers": 0
+  },
+  "loss": {
+    "residual_weight": 0.0001,
+    "residual_kind": "helmholtz_error"
+  },
+  "best_checkpoint": "/orcd/scratch/orcd/006/fkiewiet/freq2transfer/precond_v3_sweeps/phase1_residual_up_20260501/residual_w1e-4_base32/pair_64_128/T_up/best.pt",
+  "last_checkpoint": "/orcd/scratch/orcd/006/fkiewiet/freq2transfer/precond_v3_sweeps/phase1_residual_up_20260501/residual_w1e-4_base32/pair_64_128/T_up/last.pt",
+  "log_csv": "/orcd/scratch/orcd/006/fkiewiet/freq2transfer/precond_v3_sweeps/phase1_residual_up_20260501/residual_w1e-4_base32/pair_64_128/T_up/log.csv",
+  "split_indices": "/orcd/scratch/orcd/006/fkiewiet/freq2transfer/precond_v3_sweeps/phase1_residual_up_20260501/residual_w1e-4_base32/pair_64_128/T_up/split_indices.npz",
+  "split_summary": "/orcd/scratch/orcd/006/fkiewiet/freq2transfer/precond_v3_sweeps/phase1_residual_up_20260501/residual_w1e-4_base32/pair_64_128/T_up/split_summary.json",
+  "device": "cuda:0",
+  "device_info": {
+    "torch_version": "2.5.1+cu118",
+    "torch_cuda_version": "11.8",
+    "cuda_available": true,
+    "cuda_device_count": 1,
+    "cuda_visible_devices": "0",
+    "slurm_job_gpus": "0",
+    "slurm_gpus_on_node": "1",
+    "slurm_step_gpus": null,
+    "cuda_devices": [
+      {
+        "index": 0,
+        "name": "NVIDIA L40S"
+      }
+    ]
+  }
+}

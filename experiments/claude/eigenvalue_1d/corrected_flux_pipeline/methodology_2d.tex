@@ -1,0 +1,571 @@
+% ============================================================
+% Methodology appendix/section -- Two-dimensional learned warm starts
+% Thesis: Frequency Helmholtz Transfer Operator
+% Author: F.E. Kiewiet de Jonge
+% ============================================================
+%
+% Suggested packages if this file is used standalone:
+%   \usepackage{amsmath, amssymb}
+%   \usepackage{booktabs}
+%   \usepackage{graphicx}
+%   \usepackage{xcolor}
+%
+% This file is written as a thesis-ready methodology section. It extends the
+% corrected one-dimensional spectral methodology to the two-dimensional
+% production problem.
+
+\section{Two-dimensional warm-start methodology}
+\label{sec:methodology_2d_warm_start}
+
+The purpose of the two-dimensional experiments is to test whether information
+learned from a lower-frequency Helmholtz solve can reduce the cost of a
+high-frequency Krylov solve. The central object is a learned transfer operator
+\begin{equation}
+    T_{\mathrm{up}}:
+    u_{\omega_L} \mapsto x_0 \approx u_{\omega_H},
+    \qquad \omega_H > \omega_L,
+    \label{eq:twod_transfer_operator}
+\end{equation}
+where $x_0$ is used as the initial guess for GMRES or flexible GMRES applied
+to the high-frequency system
+\begin{equation}
+    A_H u_H = f,
+    \qquad A_H = A(\omega_H).
+    \label{eq:twod_high_frequency_system}
+\end{equation}
+The scientific claim is not that the neural network produces a visually
+accurate field. The claim is stronger and solver-native: a useful warm start
+should reduce the initial error and residual in directions that matter for
+Krylov convergence, thereby reducing the number of iterations required to
+reach a prescribed tolerance.
+
+The two-dimensional setting is the decisive test. In one dimension the
+matrices are small and complete eigendecomposition is possible, which makes
+the problem ideal for validating the spectral interpretation. In two
+dimensions the matrix on a $512 \times 512$ grid has $262{,}144$ unknowns, so
+full eigendecomposition is infeasible. However, the two-dimensional GMRES
+iteration count is meaningful: the system is large, indefinite, non-normal due
+to the PML, and preconditioned by a realistic complex shifted Laplacian. The
+headline result of the thesis must therefore be a two-dimensional solver
+improvement, not only a one-dimensional spectral plot.
+
+
+% ============================================================
+\subsection{Two-dimensional computational domain}
+\label{subsec:methodology_2d_grid}
+% ============================================================
+
+The computational grid has
+\[
+    n_x = n_y = 512
+\]
+points, so the full system contains
+\[
+    N = n_x n_y = 262{,}144
+\]
+complex unknowns. The Perfectly Matched Layer (PML) occupies
+\[
+    n_{\mathrm{pml}} = 112
+\]
+grid points on every side. The physical interior therefore has size
+\[
+    288 \times 288 = 82{,}944
+\]
+grid points. Source locations are sampled inside the physical interior, while
+the full PML matrix is used when solving the PDE and when evaluating GMRES.
+
+The model is trained and evaluated on frequency transfers
+\[
+    16 \to 32,
+    \qquad
+    32 \to 64,
+    \qquad
+    64 \to 128.
+\]
+The pair $32 \to 64$ is treated as the main diagnostic pair because previous
+experiments identified it as a difficult transfer case. A method that improves
+this pair is more likely to be solving a genuine bottleneck rather than only
+benefiting from an easy low-frequency setting.
+
+
+% ============================================================
+\subsection{Role of the one-dimensional study}
+\label{subsec:methodology_2d_role_of_1d}
+% ============================================================
+
+The one-dimensional experiments determine which mechanisms are worth testing
+in two dimensions. Four axes of variation are especially important:
+\begin{table}[h]
+\centering
+\begin{tabular}{lll}
+\toprule
+Axis & Comparison & Question \\
+\midrule
+Data distribution & Green function vs. FD/PML & Does PML-consistent data matter? \\
+Loss masking & Full grid vs. interior only & Should the network learn PML values? \\
+Input masking & Raw input vs. zeroed PML input & Does PML input contamination hurt? \\
+Output zeroing & Raw output vs. zeroed PML output & Does boundary output pollute GMRES? \\
+\bottomrule
+\end{tabular}
+\caption{Mechanisms diagnosed in one dimension before selecting the
+two-dimensional training strategy.}
+\label{tab:twod_axes_from_1d}
+\end{table}
+
+The resulting decision rule is simple. If a Green-function model with output
+PML zeroing performs comparably to a model trained on FD/PML data, then the
+existing two-dimensional Green-function dataset may be sufficient. This is
+important because regenerating large two-dimensional FD/PML datasets is
+expensive. If, however, the FD/PML-trained model wins clearly in initial
+residual and GMRES iteration count, then the two-dimensional training data
+should be regenerated with the FD/PML solver.
+
+The one-dimensional spectral component weighting is not transferred directly
+to two dimensions. In one dimension, Dirichlet eigenvectors form a clean
+orthonormal basis and can be used to decompose the initial error. In two
+dimensions, the full $262{,}144 \times 262{,}144$ eigendecomposition is
+infeasible. The role of the one-dimensional study is therefore explanatory:
+it validates the spectral mechanism and guides which warm-start variants are
+worth testing in the production-scale two-dimensional solver.
+
+
+% ============================================================
+\subsection{PML training and evaluation approaches}
+\label{subsec:methodology_2d_pml_approaches}
+% ============================================================
+
+The PML creates a methodological choice. The full numerical solver includes
+the PML, but the physical quantity of interest is the interior wave field.
+Training on the full grid may help the network match the exact numerical
+solution, but it can also spend capacity learning boundary-layer decay rather
+than interior phase and amplitude. Conversely, ignoring the PML may give a
+cleaner physical objective but can create a mismatch between the warm start
+and the matrix used by GMRES.
+
+The candidate approaches are summarized in
+Table~\ref{tab:twod_pml_approaches}. They are kept conceptually aligned with
+the one-dimensional ablations.
+\begin{table}[h]
+\centering
+\begin{tabular}{llll}
+\toprule
+Label & Training data & PML treatment & Purpose \\
+\midrule
+A raw &
+Green function &
+Keep PML input and output &
+Negative control for boundary contamination \\
+B zero-PML &
+Green function &
+Zero output PML before GMRES &
+Cheap baseline using existing data \\
+C PML-trained &
+FD/PML &
+Full-grid loss; keep output &
+Tests whether learning the numerical PML helps GMRES \\
+D masked &
+Green function &
+Zero PML input and output &
+Tests pure interior-to-interior learning \\
+E PML-interior &
+FD/PML &
+Interior loss; zero output PML &
+Main physically clean PML-consistent approach \\
+\bottomrule
+\end{tabular}
+\caption{PML approaches for the two-dimensional warm-start study.}
+\label{tab:twod_pml_approaches}
+\end{table}
+
+The advantages and disadvantages are as follows.
+\begin{table}[h]
+\centering
+\begin{tabular}{lll}
+\toprule
+Approach & Advantages & Disadvantages \\
+\midrule
+A raw &
+No extra processing; tests current model directly &
+Can inject large artificial values into PML rows \\
+B zero-PML &
+Cheap; uses existing Green-function data; removes boundary output &
+Training distribution still differs from FD/PML benchmark input \\
+C PML-trained &
+Matches the full numerical solver; may reduce residual most &
+May waste capacity on boundary-layer structure \\
+D masked &
+Cleanest interior-only Green-function ablation &
+May discard useful incoming low-frequency context near boundary \\
+E PML-interior &
+PML-consistent data with physical interior objective &
+Requires expensive FD/PML data generation \\
+\bottomrule
+\end{tabular}
+\caption{Pros and cons of the PML handling strategies.}
+\label{tab:twod_pml_pros_cons}
+\end{table}
+
+The main recommended two-dimensional strategy is approach E if the
+one-dimensional corrected experiments show that FD/PML data distribution
+matters. If approach B matches E or C in solver metrics, then B is preferred
+for efficiency because it avoids regenerating the full two-dimensional
+dataset.
+
+
+% ============================================================
+\subsection{Spectral analysis in two dimensions}
+\label{subsec:methodology_2d_spectral_analysis}
+% ============================================================
+
+Complete spectral decomposition is not feasible in two dimensions. The
+spectral methodology therefore changes from complete component weighting to a
+combination of scalable spectral sampling and solver-native diagnostics.
+
+\paragraph{Full eigendecomposition is avoided.}
+The full matrix has $262{,}144$ unknowns. Dense eigendecomposition would scale
+cubically and require memory far beyond the available resources. Moreover,
+the PML matrix is complex and non-normal, so its right eigenvectors would not
+provide a clean orthonormal basis for coefficient weighting even if they could
+be computed.
+
+\paragraph{Spectrum sampling is used as a diagnostic.}
+Instead of all eigenvalues, sparse eigensolvers can estimate a small number of
+extreme eigenvalues, for example the $100$ smallest and $100$ largest
+eigenvalues or Ritz values of selected operators. This is sufficient to check
+whether the broad real-part structure agrees with the validated
+one-dimensional expectation. These sampled eigenvalues are diagnostic only;
+they are not used for modal coefficient claims.
+
+\paragraph{Solver-native metrics replace modal coefficients.}
+The primary two-dimensional evidence is based on quantities that can be
+computed for every test problem:
+\begin{align}
+    \text{initial residual ratio}
+    &=
+    \frac{\|A_H x_0 - f\|_2}{\|f\|_2},
+    \label{eq:twod_initial_residual}
+    \\
+    \text{interior relative error}
+    &=
+    \frac{\|x_0[\Omega_{\mathrm{int}}]
+            - u_H[\Omega_{\mathrm{int}}]\|_2}
+         {\|u_H[\Omega_{\mathrm{int}}]\|_2},
+    \label{eq:twod_initial_error}
+    \\
+    \text{GMRES iteration count}
+    &=
+    \min \{m : \|r_m\|_2/\|r_0\|_2 \leq \tau\}.
+    \label{eq:twod_iteration_count}
+\end{align}
+These metrics directly measure what the thesis claims: whether the warm start
+reduces the cost of solving the high-frequency linear system.
+
+\paragraph{Residual curves are mandatory.}
+A single iteration count can hide important behavior such as an initially bad
+phase that GMRES corrects quickly. Therefore every serious comparison reports
+the full residual curve, ideally with medians and interquartile bands across
+multiple source fields.
+
+
+% ============================================================
+\subsection{CSL preconditioning in two dimensions}
+\label{subsec:methodology_2d_csl}
+% ============================================================
+
+The baseline iterative method uses the complex shifted Laplacian (CSL)
+preconditioner
+\begin{equation}
+    M_{\mathrm{CSL}}
+    =
+    A_H - i\beta\omega_H^2 I.
+    \label{eq:twod_csl}
+\end{equation}
+GMRES is then applied to the right- or left-preconditioned system, depending
+on the implementation. The shift parameter $\beta$ controls the strength of
+the preconditioner. A larger $\beta$ typically gives a more damped and easier
+auxiliary problem, while a smaller $\beta$ makes the preconditioner closer to
+the original Helmholtz operator but harder to invert.
+
+The warm start and CSL preconditioner have different roles:
+\begin{table}[h]
+\centering
+\begin{tabular}{lll}
+\toprule
+Object & Acts on & Main effect \\
+\midrule
+Warm start $x_0$ & Initial guess & Reduces initial error and residual \\
+CSL $M_{\mathrm{CSL}}$ & Krylov residuals & Changes convergence dynamics \\
+\bottomrule
+\end{tabular}
+\caption{Separation between learned warm starts and classical CSL
+preconditioning.}
+\label{tab:twod_warmstart_vs_csl}
+\end{table}
+
+Sensitivity in $\beta$ is important. If $\beta$ is very strong, GMRES may
+converge quickly regardless of the initial guess, hiding the warm-start
+effect. If $\beta$ is too weak, all methods may converge slowly. Therefore
+the evaluation should include at least strong, medium, and weak CSL settings,
+for example $\beta \in \{0.3,0.1,0.05\}$.
+
+
+% ============================================================
+\subsection{Families of tests and phase structure}
+\label{subsec:methodology_2d_families_phases}
+% ============================================================
+
+The experimental programme is organized into three phases. The purpose is to
+avoid confusing neural-network validation loss with actual solver benefit.
+
+\subsubsection{Phase 1: Bottleneck map}
+
+Phase 1 diagnoses what currently limits the warm-start operator. It asks
+whether performance is limited by training time, model capacity, architecture,
+or objective mismatch. The main families are:
+\begin{table}[h]
+\centering
+\begin{tabular}{lll}
+\toprule
+Family & Question & Examples \\
+\midrule
+A: capacity and budget &
+Is the model undertrained or too small? &
+More epochs, wider base channels, deeper UNet \\
+B: operator-weighted loss &
+Does solver-aligned loss help? &
+Add residual-like penalty with several weights \\
+Diagnostics &
+Are scales and datasets sane? &
+RMS, field magnitudes, source statistics \\
+Evaluation &
+Does field improvement reduce FGMRES cost? &
+Initial residual, iterations, residual curves \\
+\bottomrule
+\end{tabular}
+\caption{Phase 1 bottleneck families.}
+\label{tab:twod_phase1_families}
+\end{table}
+
+The output of Phase 1 is a table with, for every variant and frequency pair,
+the best field loss, final field loss, initial residual ratio, FGMRES
+iterations, and a short conclusion. The rule is that field loss alone is never
+sufficient for a claim.
+
+\subsubsection{Phase 2: Best warm-start operator}
+
+Phase 2 turns the Phase 1 diagnosis into the strongest defensible warm-start
+model. It starts on the hard pair $32\to64$ and then repeats the best variants
+on all frequency pairs. The main tracks are:
+\begin{table}[h]
+\centering
+\begin{tabular}{lll}
+\toprule
+Track & Question & Candidate experiments \\
+\midrule
+Source conditioning &
+Is $u_{\omega_L}$ enough information? &
+$u_L$, $u_L+f$, $f$ only \\
+Exact residual loss &
+Does true PDE residual improve solver behavior? &
+$L_{\mathrm{field}} + \lambda\|A_H \hat u - f\|^2$ \\
+Fourier coordinates &
+Does spectral coordinate bias improve phase transfer? &
+Add $\sin$/$\cos$ features for low modes \\
+Architecture consolidation &
+Which Phase 1 model is strongest? &
+Best width/depth/loss combination \\
+Cross-pair validation &
+Does the improvement generalize? &
+Repeat on $16\to32$, $32\to64$, $64\to128$ \\
+\bottomrule
+\end{tabular}
+\caption{Phase 2 tracks for building the best warm-start operator.}
+\label{tab:twod_phase2_tracks}
+\end{table}
+
+The success criterion for Phase 2 is solver-native: the chosen model must
+reduce the initial residual and the FGMRES iteration count, not merely the
+validation field loss.
+
+\subsubsection{Phase 3: Learned preconditioner}
+
+Phase 3 moves beyond a one-time initial guess. The learning problem becomes
+\begin{equation}
+    r_k \mapsto z_k \approx A_H^{-1} r_k,
+    \label{eq:twod_learned_preconditioner}
+\end{equation}
+where $r_k$ is a Krylov residual and $z_k$ is a correction. This is a learned
+inverse-action or learned-preconditioner problem, not a frequency-transfer
+problem. Candidate residual families include random smooth residuals,
+physical source-distribution residuals, actual FGMRES residuals, and residuals
+augmented with source or frequency context.
+
+The evaluation ladder is deliberately conservative:
+\begin{enumerate}
+    \item test a one-shot correction
+    \[
+        x_1 = x_0 + M_\theta(r_0);
+    \]
+    \item test repeated corrections outside GMRES;
+    \item integrate the learned correction inside or alongside FGMRES;
+    \item compare zero start, warm start only, correction only, and warm start
+    plus correction.
+\end{enumerate}
+This phase is more ambitious and should only follow once the warm-start
+baseline is understood.
+
+
+% ============================================================
+\subsection{Chained frequency transfer}
+\label{subsec:methodology_2d_chaining}
+% ============================================================
+
+The standard transfer experiments use one hop, for example $32\to64$.
+However, in practical multilevel settings one may chain transfers:
+\begin{equation}
+    u_{16}
+    \xrightarrow{T_{\mathrm{up}}}
+    \widehat u_{32}
+    \xrightarrow{T_{\mathrm{up}}}
+    \widehat u_{64}
+    \xrightarrow{T_{\mathrm{up}}}
+    \widehat u_{128}.
+    \label{eq:twod_chained_transfer}
+\end{equation}
+Chaining introduces a different failure mode: small phase errors can compound
+across transfers. The two-dimensional evaluation should therefore compare
+direct and chained warm starts where possible. For example, a warm start for
+$\omega=128$ can be produced either from a direct low-frequency input or by
+successive applications of pairwise transfer models. The comparison should be
+judged by initial residual and FGMRES iterations.
+
+
+% ============================================================
+\subsection{Sensitivity analysis}
+\label{subsec:methodology_2d_sensitivity}
+% ============================================================
+
+Sensitivity analysis is required because a warm-start benefit can be hidden or
+amplified by numerical choices unrelated to the neural operator. The key
+parameters are:
+\begin{table}[h]
+\centering
+\begin{tabular}{lll}
+\toprule
+Parameter & Values or range & Reason \\
+\midrule
+CSL shift $\beta$ & $0.3$, $0.1$, $0.05$ & Tests strong to weak preconditioning \\
+PML damping scale & Around default values & Tests boundary absorption strength \\
+PML treatment & A--E & Tests data, loss, input, and output choices \\
+Frequency pair & All three pairs & Tests transfer difficulty and generalization \\
+Source family & Single and multi-source & Tests robustness to forcing distribution \\
+Architecture & Best Phase 1 variants & Separates model capacity from physics choices \\
+\bottomrule
+\end{tabular}
+\caption{Sensitivity dimensions for the two-dimensional warm-start study.}
+\label{tab:twod_sensitivity}
+\end{table}
+
+The sensitivity analysis should be staged. First, run the corrected
+one-dimensional experiment to decide whether FD/PML training data are
+necessary. Second, port the smallest winning set of variants to two
+dimensions. Third, vary CSL strength and frequency pair. Only after these
+results are understood should broader architecture and data-generation sweeps
+be launched.
+
+
+% ============================================================
+\subsection{Decision logic for porting one-dimensional results to two dimensions}
+\label{subsec:methodology_2d_decision_logic}
+% ============================================================
+
+The one-dimensional results determine the two-dimensional plan according to
+the following rules:
+\begin{table}[h]
+\centering
+\begin{tabular}{lll}
+\toprule
+One-dimensional observation & Interpretation & Two-dimensional action \\
+\midrule
+B matches C/E &
+Green data plus output zeroing is enough &
+Use existing 2D data first \\
+C wins clearly &
+Full PML prediction helps solver residual &
+Generate 2D FD/PML data and train C \\
+E wins or matches C &
+Interior objective is sufficient and cleaner &
+Train 2D FD/PML with interior loss \\
+A has good field loss but bad residual &
+PML contamination matters &
+Never use raw PML output as final method \\
+Higher pairs degrade strongly &
+Transfer gap is limiting &
+Prioritize $32\to64$ and source conditioning \\
+\bottomrule
+\end{tabular}
+\caption{Decision logic for transferring conclusions from one dimension to
+two dimensions.}
+\label{tab:twod_decision_logic}
+\end{table}
+
+This decision table prevents unnecessary expensive data generation. The
+two-dimensional FD/PML dataset should only be regenerated if the one-dimensional
+evidence shows that matching the PML data distribution improves solver-native
+metrics.
+
+
+% ============================================================
+\subsection{Reporting requirements}
+\label{subsec:methodology_2d_reporting}
+% ============================================================
+
+Every two-dimensional result should report four quantities:
+\begin{enumerate}
+    \item initial relative residual $\|A_H x_0 - f\|_2/\|f\|_2$;
+    \item interior relative error
+    $\|x_0[\Omega_{\mathrm{int}}]-u_H[\Omega_{\mathrm{int}}]\|_2/
+      \|u_H[\Omega_{\mathrm{int}}]\|_2$;
+    \item FGMRES iterations to tolerance;
+    \item residual convergence curves over iterations.
+\end{enumerate}
+When available, wall-clock time should also be reported, including neural
+network inference cost. A method that reduces iterations but increases total
+time may still be scientifically interesting, but the distinction must be
+explicit.
+
+The guiding rule is:
+\[
+    \text{do not trust field loss alone.}
+\]
+Every major claim must ultimately be supported by initial residuals, FGMRES
+iteration counts, and residual curves.
+
+
+% ============================================================
+\subsection{Summary of the full research pipeline}
+\label{subsec:methodology_2d_pipeline_summary}
+% ============================================================
+
+The full research pipeline can be summarized as follows.
+\begin{enumerate}
+    \item Validate the spectral mechanism in one dimension using Dirichlet
+    eigenvectors with unit norm.
+    \item Use the one-dimensional PML ablations to decide which data and loss
+    choices are worth porting to two dimensions.
+    \item In two dimensions, evaluate warm starts with solver-native metrics:
+    initial residual, interior error, FGMRES iterations, and residual curves.
+    \item Use Phase 1 to identify bottlenecks in the current warm-start model.
+    \item Use Phase 2 to build the strongest physics-aware warm-start operator.
+    \item Use Phase 3, if time permits, to move from warm starts toward learned
+    inverse action on Krylov residuals.
+\end{enumerate}
+The clean thesis arc is therefore:
+\[
+    \text{diagnose the bottleneck}
+    \;\longrightarrow\;
+    \text{build a solver-reducing warm start}
+    \;\longrightarrow\;
+    \text{extend toward learned preconditioning}.
+\]
+

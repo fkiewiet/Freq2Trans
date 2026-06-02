@@ -1,0 +1,65 @@
+sweep_id: north_star_up_20260501
+description: >
+  Controlled precond_v3 north-star sweep for frequency-transfer warm starts.
+  The first experiment resumes the current production runs to 1000 epochs.
+  The remaining experiments create isolated result roots for one-factor tests.
+
+root_outdir: /orcd/scratch/orcd/006/fkiewiet/freq2transfer/precond_v3_sweeps/north_star_up_20260501
+current_outdir: /orcd/scratch/orcd/006/fkiewiet/freq2transfer/precond_v3_runs
+log_dir: /orcd/scratch/orcd/006/fkiewiet/freq2transfer/slurm_logs
+launcher: experiments/claude/precond_v3/launch/sbatch_pair_up_staged.sh
+
+pairs:
+  - "16_32"
+  - "32_64"
+  - "64_128"
+
+resources:
+  partition: mit_preemptable
+  time: "12:00:00"
+  cpus_per_task: 4
+  mem: 64G
+  gres: gpu:1
+
+defaults:
+  direction: up
+  max_runtime_h: 10.5
+  num_workers: 0
+  args:
+    epochs: 1000
+    early_stop: 10000
+    lr_patience: 40
+
+experiments:
+  - id: continue_current_1000
+    hypothesis: insufficient iterations; continue the current checkpoints to 1000 epochs.
+    outdir: current
+    resume: true
+    args: {}
+
+  - id: fresh_budget_1000_base32
+    hypothesis: insufficient iterations, tested from a fresh base-width-32 run.
+    resume: false
+    args:
+      fresh: true
+
+  - id: capacity_base48
+    hypothesis: insufficient network size; wider UNet improves validation and warm-start residuals.
+    resume: false
+    args:
+      fresh: true
+      base_ch: 48
+
+  - id: capacity_base64
+    hypothesis: insufficient network size; still wider UNet tests capacity saturation.
+    resume: false
+    args:
+      fresh: true
+      base_ch: 64
+
+  - id: depth_levels5
+    hypothesis: architecture/depth bottleneck; larger receptive hierarchy helps high-frequency phase transfer.
+    resume: false
+    args:
+      fresh: true
+      levels: 5

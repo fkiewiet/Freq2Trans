@@ -1,0 +1,40 @@
+sweep_id: campaign_65h_continue_base32_all_pairs
+description: >
+  65h ORCD campaign: continue the existing verified base32 all-pair runs.
+  This is the conservative thesis anchor because it resumes the known repaired
+  data / staged-launch pipeline and lets the models keep improving after the
+  65h reporting snapshot.
+
+root_outdir: /orcd/scratch/orcd/006/fkiewiet/freq2transfer/precond_2d_rigorous/phase1_verified_all_pairs
+log_dir: /orcd/scratch/orcd/006/fkiewiet/freq2transfer/slurm_logs
+launcher: experiments/claude/precond_v3/launch/sbatch_pair_up_staged.sh
+
+pairs:
+  - "16_32"
+  - "32_64"
+  - "64_128"
+
+resources:
+  partition: mit_preemptable
+  time: "12:00:00"
+  cpus_per_task: 4
+  mem: 64G
+  gres: gpu:1
+
+defaults:
+  direction: up
+  max_runtime_h: 10.5
+  num_workers: 0
+  auto_resubmit: false
+  max_auto_resubmits: 8
+  args:
+    epochs: 3000
+    early_stop: 10000
+    lr_patience: 40
+
+experiments:
+  - id: base32_field_verified
+    hypothesis: continue the clean base32 full-grid/PML-compatible baseline long enough for a 65h reporting checkpoint.
+    resume: true
+    args: {}
+

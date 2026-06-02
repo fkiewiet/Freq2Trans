@@ -1,0 +1,5 @@
+# Local override for wave7a/wave7b — N=9600 dataset, local /tmp outdir.
+# Keeps base config split sizes (n_train=7000, n_val=1300, n_test=1300).
+# Use with: --override_config experiments/claude/precond_v3/configs/local_N9600_override.yaml
+
+outdir: /tmp/fkiewiet/precond_v3_N9600

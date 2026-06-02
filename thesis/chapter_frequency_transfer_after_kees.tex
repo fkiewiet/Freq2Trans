@@ -1,0 +1,752 @@
+% !TEX root = ../main.tex
+% ============================================================
+% Chapter 5 -- The Frequency Transfer Operator
+% Revised after discussion with Kees.
+% Focus: conceptual and mathematical bridge from frequency coherence
+% to residual-compatible learned solver components.
+% ============================================================
+
+\chapter{The frequency transfer operator}
+\label{ch:frequency-transfer}
+
+\providecommand{\chfiveincludegraphics}[2]{%
+    \IfFileExists{#2}{%
+        \includegraphics[width=#1]{#2}%
+    }{%
+        \fbox{%
+            \parbox[c][0.22\textheight][c]{0.86\linewidth}{%
+                \centering
+                \textbf{Figure placeholder}\\[0.6em]
+                \texttt{\detokenize{#2}}%
+            }%
+        }%
+    }%
+}
+
+The preceding chapters introduced the Helmholtz equation, its finite
+difference discretisation, absorbing boundary treatment, and the classical
+iterative methods used later in the thesis. The central numerical difficulty
+is that high-frequency Helmholtz systems are indefinite, oscillatory, and hard
+to precondition uniformly. Classical methods act at one frequency at a time.
+They do not exploit the fact that wavefields at neighbouring frequencies are
+not unrelated objects.
+
+This chapter introduces frequency transfer: the use of information from a
+lower-frequency Helmholtz solve to assist a higher-frequency solve. The idea
+is physically natural. In a homogeneous medium, changing the frequency changes
+the wavelength and amplitude scale, but not the underlying propagation
+geometry. The low-frequency field therefore contains information about where
+energy travels, reflects, and decays. A learned operator can, in principle,
+use this coherent structure to predict or correct the high-frequency field.
+
+The main message of the chapter is deliberately more restrictive than this
+physical motivation. Frequency transfer is plausible as a field-prediction
+problem, but a Helmholtz solver is not controlled by field error alone. A
+Krylov method is controlled by residuals. Therefore, the object needed by a
+solver is not merely a map from one solution field to another. It is a
+residual-compatible correction mechanism. This distinction is the backbone of
+the thesis.
+
+The chapter is organised as follows.
+Section~\ref{sec:ch5-frequency-coherence} explains frequency coherence from
+the Green's function. Section~\ref{sec:ch5-solution-transfer} defines exact
+solution transfer and its Fourier interpretation. Section~\ref{sec:ch5-warm-starts}
+shows how solution transfer can be used as a warm start, and why the induced
+residual is the relevant algebraic test. Section~\ref{sec:ch5-transfer-precond}
+then distinguishes solution transfer, residual restriction, and correction
+prolongation. Section~\ref{sec:ch5-modal-safety} gives the modal mechanism by
+which small field errors can become large residuals. Section~\ref{sec:ch5-pml}
+explains why this issue is especially important in PML discretisations.
+Finally, Sections~\ref{sec:ch5-objectives}--\ref{sec:ch5-architecture}
+summarise the implications for learning objectives and neural architectures.
+
+% ============================================================
+\section{Frequency coherence of Helmholtz fields}
+\label{sec:ch5-frequency-coherence}
+% ============================================================
+
+Consider the time-harmonic Helmholtz equation in a homogeneous medium with
+unit wave speed,
+\begin{equation}
+    \mathcal{A}_\omega u
+    :=
+    \left(-\Delta-\omega^2\right)u
+    =
+    f,
+    \label{eq:ch5-continuous-helmholtz}
+\end{equation}
+where $\omega$ is the angular frequency. In two-dimensional free space, the
+outgoing Green's function for a point source at $\mathbf{x}_s$ is
+\begin{equation}
+    G_\omega(\mathbf{x},\mathbf{x}_s)
+    =
+    \frac{i}{4}H_0^{(1)}(\omega r),
+    \qquad
+    r=\|\mathbf{x}-\mathbf{x}_s\|_2,
+    \label{eq:ch5-greens-function}
+\end{equation}
+where $H_0^{(1)}$ is the Hankel function of the first kind. For large
+argument,
+\begin{equation}
+    H_0^{(1)}(z)
+    \sim
+    \sqrt{\frac{2}{\pi z}}
+    \exp\!\left(i(z-\pi/4)\right),
+    \qquad |z|\to\infty.
+    \label{eq:ch5-hankel-asymptotic}
+\end{equation}
+Substituting~\eqref{eq:ch5-hankel-asymptotic} into
+\eqref{eq:ch5-greens-function} gives the far-field form
+\begin{equation}
+    G_\omega(\mathbf{x},\mathbf{x}_s)
+    \sim
+    C_\omega r^{-1/2}e^{i\omega r},
+    \qquad
+    C_\omega
+    =
+    \frac{i}{4}
+    \sqrt{\frac{2}{\pi\omega}}
+    e^{-i\pi/4}.
+    \label{eq:ch5-green-far-field}
+\end{equation}
+
+Equation~\eqref{eq:ch5-green-far-field} separates the field into three
+components. The factor $r^{-1/2}$ is the two-dimensional geometric spreading
+envelope. It depends on propagation distance, but not on the frequency. The
+constant $C_\omega$ contains the global frequency-dependent amplitude scale,
+with $|C_\omega|\propto\omega^{-1/2}$. The phase factor $e^{i\omega r}$
+contains the oscillation rate. Increasing $\omega$ therefore increases the
+number of phase cycles along the same ray path while preserving the large-scale
+propagation geometry.
+
+For a doubled-frequency pair $\omega_H=2\omega_L$, the far-field amplitude
+ratio is
+\begin{equation}
+    \frac{|C_{\omega_H}|}{|C_{\omega_L}|}
+    =
+    \sqrt{\frac{\omega_L}{\omega_H}}
+    =
+    \frac{1}{\sqrt{2}}.
+    \label{eq:ch5-amplitude-ratio}
+\end{equation}
+This ratio should not be overinterpreted. A high-frequency field is not a
+pointwise rescaling of the low-frequency field, because the phase changes
+along every propagation path. The important point is weaker and more useful:
+the two solutions are coherent. They share geometry, but differ in phase,
+amplitude scale, and boundary-layer behaviour.
+
+\begin{figure}[htbp]
+    \centering
+    \chfiveincludegraphics{0.92\linewidth}{figures/ch5/green_frequency_coherence.png}
+    \caption{Frequency coherence of homogeneous Helmholtz fields. The real
+    part of the free-space Green's function is shown for several frequencies
+    with one centred source. The propagation geometry is common to all panels,
+    while the oscillation rate increases with frequency. Each panel should be
+    normalised by its maximum absolute value so that the visual comparison
+    emphasises phase structure rather than absolute amplitude.}
+    \label{fig:ch5-green-frequency-coherence}
+\end{figure}
+
+\begin{figure}[htbp]
+    \centering
+    \chfiveincludegraphics{0.78\linewidth}{figures/ch5/radial_green_cross_section.png}
+    \caption{Radial cross-section of the free-space Green's function for a
+    doubled-frequency pair. The amplitude envelope should show the far-field
+    scaling $\sqrt{\omega_L/\omega_H}$, while the real part should show the
+    doubled oscillation rate. A shaded near-source region can mark where the
+    far-field approximation is least accurate.}
+    \label{fig:ch5-radial-green-cross-section}
+\end{figure}
+
+This physical coherence is the reason a data-driven transfer operator is a
+reasonable object to learn. The low-frequency field is a compressed
+description of propagation geometry. The high-frequency field asks for the
+same geometry at a shorter wavelength.
+
+% ============================================================
+\section{Exact solution transfer}
+\label{sec:ch5-solution-transfer}
+% ============================================================
+
+Let $u_L$ and $u_H$ solve two Helmholtz problems with the same source,
+\begin{equation}
+    \mathcal{A}_L u_L=f,
+    \qquad
+    \mathcal{A}_H u_H=f,
+    \label{eq:ch5-two-frequency-solves}
+\end{equation}
+where $\mathcal{A}_L=\mathcal{A}_{\omega_L}$ and
+$\mathcal{A}_H=\mathcal{A}_{\omega_H}$. If both operators are invertible under
+the chosen boundary or radiation condition, the exact low-to-high solution
+transfer operator is
+\begin{equation}
+    \mathcal{T}_{\uparrow}^{\mathrm{sol}}
+    :=
+    \mathcal{A}_H^{-1}\mathcal{A}_L.
+    \label{eq:ch5-exact-transfer-up}
+\end{equation}
+Indeed,
+\begin{equation}
+    \mathcal{T}_{\uparrow}^{\mathrm{sol}}u_L
+    =
+    \mathcal{A}_H^{-1}\mathcal{A}_L u_L
+    =
+    \mathcal{A}_H^{-1}f
+    =
+    u_H.
+    \label{eq:ch5-transfer-maps-solution}
+\end{equation}
+Similarly, the exact high-to-low solution-transfer operator is
+\begin{equation}
+    \mathcal{T}_{\downarrow}^{\mathrm{sol}}
+    :=
+    \mathcal{A}_L^{-1}\mathcal{A}_H.
+    \label{eq:ch5-exact-transfer-down}
+\end{equation}
+
+The superscript ``sol'' is important. The operator in
+\eqref{eq:ch5-exact-transfer-up} maps one complete solution field to another
+complete solution field. It satisfies the intertwining identity
+\begin{equation}
+    \mathcal{A}_H\mathcal{T}_{\uparrow}^{\mathrm{sol}}
+    =
+    \mathcal{A}_L.
+    \label{eq:ch5-solution-intertwining}
+\end{equation}
+On the solution manifold, this identity says that applying the high-frequency
+operator after exact transfer recovers the original source $f$.
+
+One should not replace~\eqref{eq:ch5-solution-intertwining} by an informal
+commutation relation such as
+$\mathcal{A}_H\mathcal{T}=\mathcal{T}\mathcal{A}_L$. Such a relation would
+require a single operator to transfer both fields and right-hand sides in a
+compatible way. That is not what a solution-transfer map is. This distinction
+becomes decisive when the map is placed inside a Krylov method, because a
+Krylov preconditioner acts on residuals rather than on complete solution
+fields.
+
+\begin{figure}[htbp]
+    \centering
+    \chfiveincludegraphics{0.86\linewidth}{figures/ch5/solution_transfer_operator_schematic.png}
+    \caption{Exact solution transfer between two frequencies. The same source
+    $f$ defines both $u_L=\mathcal{A}_L^{-1}f$ and
+    $u_H=\mathcal{A}_H^{-1}f$. The operator
+    $\mathcal{T}_{\uparrow}^{\mathrm{sol}}=\mathcal{A}_H^{-1}\mathcal{A}_L$
+    maps $u_L$ to $u_H$ and satisfies
+    $\mathcal{A}_H\mathcal{T}_{\uparrow}^{\mathrm{sol}}u_L=f$ on this
+    solution pair.}
+    \label{fig:ch5-solution-transfer-schematic}
+\end{figure}
+
+In a constant-coefficient periodic or free-space setting, the Fourier
+transform diagonalises the Helmholtz operator:
+\begin{equation}
+    \widehat{\mathcal{A}_\omega u}(\mathbf{k})
+    =
+    \left(|\mathbf{k}|^2-\omega^2\right)\hat{u}(\mathbf{k}).
+    \label{eq:ch5-fourier-symbol-A}
+\end{equation}
+The formal Fourier multiplier for exact solution transfer is therefore
+\begin{equation}
+    \widehat{\mathcal{T}_{\uparrow}^{\mathrm{sol}}}(\mathbf{k})
+    =
+    \frac{|\mathbf{k}|^2-\omega_L^2}
+         {|\mathbf{k}|^2-\omega_H^2},
+    \label{eq:ch5-fourier-symbol-transfer}
+\end{equation}
+with the usual outgoing, limiting-absorption, or PML regularisation near
+singular frequencies. In physical space, this is a convolution operator in the
+translation-invariant idealisation. This provides a second reason that
+convolutional neural networks are natural approximators for homogeneous
+frequency transfer: away from boundaries, the exact map has an integral-kernel
+structure.
+
+The Fourier expression also gives a warning. The multiplier can become large
+near high-frequency resonant components. A learned approximation may predict
+the dominant field structure well while still making small errors in
+operator-sensitive components. Those errors are invisible if one looks only at
+the plotted field, but they can dominate the residual.
+
+% ============================================================
+\section{Warm starts and induced residuals}
+\label{sec:ch5-warm-starts}
+% ============================================================
+
+The simplest use of learned solution transfer is as a warm start. One first
+solves the cheaper low-frequency problem, applies a learned transfer map
+$T_{\uparrow,\theta}^{\mathrm{sol}}$, and uses the result as the initial guess
+for the high-frequency solve:
+\begin{equation}
+    x_0
+    =
+    T_{\uparrow,\theta}^{\mathrm{sol}}u_L.
+    \label{eq:ch5-warm-start}
+\end{equation}
+If $u_H$ is the exact high-frequency solution, the initial error and residual
+are
+\begin{equation}
+    e_0
+    =
+    u_H-x_0,
+    \qquad
+    r_0
+    =
+    f-\mathbf{A}_H x_0
+    =
+    \mathbf{A}_H e_0.
+    \label{eq:ch5-error-residual-relation}
+\end{equation}
+The residual is therefore not an independent diagnostic. It is the field error
+after applying the high-frequency discrete operator.
+
+Equation~\eqref{eq:ch5-error-residual-relation} is the first major bridge from
+frequency transfer to solver performance. A field-trained model is usually
+optimised to make $\|e_0\|_2/\|u_H\|_2$ small. FGMRES, however, is driven by
+$\|r_0\|_2/\|f\|_2$ or by the corresponding preconditioned residual. These
+quantities can behave very differently because $\mathbf{A}_H$ is indefinite
+and has strongly frequency-dependent amplification.
+
+Thus a learned field prediction can occupy three qualitatively different
+regimes:
+\begin{enumerate}
+    \item it may be accurate as a field and also residual-compatible;
+    \item it may be accurate as a field but poor as an algebraic initial state;
+    \item it may improve only some components of the residual and damage
+    others.
+\end{enumerate}
+The later results show examples of these regimes. The purpose here is to make
+clear why they are mathematically possible.
+
+For this thesis, the headline solver-facing warm-start metric is the true
+relative residual
+\begin{equation}
+    \frac{\|f-\mathbf{A}_H x_0\|_2}{\|f\|_2}.
+    \label{eq:ch5-true-initial-residual}
+\end{equation}
+The relative field error remains important, but it answers a different
+question. Field error asks whether the predicted wavefield resembles the
+target solution. The residual asks whether the prediction is a good state for
+the discrete equation that the Krylov method will solve.
+
+% ============================================================
+\section{From solution transfer to preconditioning}
+\label{sec:ch5-transfer-precond}
+% ============================================================
+
+A warm start uses frequency transfer once, before the Krylov iteration begins.
+A preconditioner uses a transfer mechanism repeatedly inside the iteration.
+This changes the mathematical task. At FGMRES iteration $j$, the input is a
+high-frequency residual $r_H^{(j)}$, and the preconditioner must return a
+correction $z_H^{(j)}$ such that
+\begin{equation}
+    \mathbf{A}_H z_H^{(j)}
+    \approx
+    r_H^{(j)}.
+    \label{eq:ch5-preconditioner-task}
+\end{equation}
+The output is not a complete high-frequency solution. It is an approximate
+error correction for the current residual.
+
+This suggests a learned V-cycle structure,
+\begin{equation}
+    \mathbf{M}_{\theta}^{-1}
+    =
+    \mathcal{P}_{\theta}
+    \mathbf{A}_L^{-1}
+    \mathcal{R}_{\theta},
+    \label{eq:ch5-learned-vcycle}
+\end{equation}
+where $\mathcal{R}_{\theta}$ maps a high-frequency residual to a
+low-frequency right-hand side or correction representation, $\mathbf{A}_L^{-1}$
+performs a low-frequency solve, and $\mathcal{P}_{\theta}$ prolongs the
+low-frequency correction back to the high-frequency system. The analogy with a
+geometric multigrid V-cycle is useful:
+\begin{equation}
+    \text{restriction}
+    \;\longrightarrow\;
+    \text{coarse solve}
+    \;\longrightarrow\;
+    \text{prolongation}.
+    \label{eq:ch5-vcycle-words}
+\end{equation}
+The difference is that the transfer maps must respect both grid geometry and
+frequency-dependent wave physics.
+
+\begin{figure}[htbp]
+    \centering
+    \chfiveincludegraphics{0.82\linewidth}{figures/ch5/learned_vcycle_schematic.png}
+    \caption{Learned V-cycle preconditioner inside one FGMRES iteration. The
+    high-frequency residual $r_H^{(j)}$ is restricted by a learned map
+    $\mathcal{R}_{\theta}$, solved with the low-frequency operator
+    $\mathbf{A}_L^{-1}$, and prolonged by a learned map
+    $\mathcal{P}_{\theta}$ to produce the high-frequency correction
+    $z_H^{(j)}=\mathbf{M}_{\theta}^{-1}r_H^{(j)}$.}
+    \label{fig:ch5-learned-vcycle-schematic}
+\end{figure}
+
+The thesis therefore distinguishes three transfer objects:
+\begin{align}
+    T_{\uparrow}^{\mathrm{sol}} &: u_L \mapsto u_H,
+    &&\text{solution transfer}, \label{eq:ch5-three-objects-solution}\\
+    R &: r_H \mapsto r_L \text{ or } e_L,
+    &&\text{residual restriction}, \label{eq:ch5-three-objects-restriction}\\
+    P &: e_L \mapsto e_H,
+    &&\text{correction prolongation}. \label{eq:ch5-three-objects-prolongation}
+\end{align}
+These objects have related physical content, but they are not interchangeable.
+A solution-transfer network has learned how complete solutions at two
+frequencies are related on the solution manifold. A residual restriction must
+map an arbitrary Krylov residual to a useful low-frequency problem. A
+correction prolongation must map an approximate low-frequency error correction
+to a high-frequency correction that reduces the current residual. Confusing
+these roles is a direct route to a learned component that looks plausible as a
+field but fails as a preconditioner.
+
+\begin{figure}[htbp]
+    \centering
+    \chfiveincludegraphics{0.92\linewidth}{figures/ch5/three_transfer_objects.png}
+    \caption{Three transfer objects that must be kept separate. Solution
+    transfer maps one complete wavefield to another. Residual restriction maps
+    a current high-frequency residual to a low-frequency representation.
+    Correction prolongation maps a low-frequency correction back to the
+    high-frequency system. They share frequency-transfer intuition but have
+    different algebraic roles.}
+    \label{fig:ch5-three-transfer-objects}
+\end{figure}
+
+% ============================================================
+\section{Residual amplification and modal safety}
+\label{sec:ch5-modal-safety}
+% ============================================================
+
+The cleanest way to see why field accuracy and residual accuracy differ is the
+one-dimensional Dirichlet problem. Let $\mathbf{A}_H$ have eigenpairs
+$(\lambda_k,v_k)$ with $\|v_k\|_2=1$. If
+\begin{equation}
+    e_0
+    =
+    u_H-x_0
+    =
+    \sum_k c_k(e_0)v_k,
+    \label{eq:ch5-error-expansion}
+\end{equation}
+then
+\begin{equation}
+    r_0
+    =
+    \mathbf{A}_H e_0
+    =
+    \sum_k \lambda_k c_k(e_0)v_k.
+    \label{eq:ch5-residual-expansion}
+\end{equation}
+Thus
+\begin{equation}
+    c_k(r_0)
+    =
+    \lambda_k c_k(e_0).
+    \label{eq:ch5-modal-amplification}
+\end{equation}
+The residual coefficient is the field-error coefficient multiplied by the
+corresponding eigenvalue.
+
+For the standard second-order Dirichlet discretisation of
+$-\partial_{xx}-\omega^2$, the eigenvectors are sine modes,
+\begin{equation}
+    v_k(j)
+    =
+    \sqrt{\frac{2}{N+1}}
+    \sin\!\left(\frac{jk\pi}{N+1}\right),
+    \qquad
+    j,k=1,\dots,N,
+    \label{eq:ch5-dirichlet-eigenvectors}
+\end{equation}
+and the eigenvalues are
+\begin{equation}
+    \lambda_k(\omega)
+    =
+    \frac{4}{h^2}
+    \sin^2\!\left(\frac{k\pi}{2(N+1)}\right)
+    -
+    \omega^2.
+    \label{eq:ch5-dirichlet-eigenvalues}
+\end{equation}
+This basis is used later as a diagnostic microscope. It allows one to see not
+only whether a neural field has small error, but where that error sits in the
+spectrum and how it is amplified into a residual.
+
+Equation~\eqref{eq:ch5-modal-amplification} motivates the notion of modal
+safety. A learned component is safe in a mode if inserting it reduces the
+residual contribution in that mode relative to a trusted baseline. It is
+unsafe if it improves the field visually but increases the residual
+contribution. In a setting with known eigenvectors, this can be tested by a
+spectral gate: accept a learned modal component only if it reduces the
+corresponding residual. In higher-dimensional PML problems the same exact
+modal gate is not available, but the principle remains: learned information
+must be selected or trained according to residual improvement, not only field
+similarity.
+
+\begin{figure}[htbp]
+    \centering
+    \chfiveincludegraphics{0.86\linewidth}{figures/ch5/modal_amplification_cartoon.png}
+    \caption{Residual amplification in the Dirichlet eigenbasis. A field error
+    with small high-mode coefficients can still create a large residual
+    because each residual coefficient is multiplied by the corresponding
+    eigenvalue, $c_k(r_0)=\lambda_k c_k(e_0)$. This is the central reason that
+    field accuracy alone is not a sufficient criterion for Krylov
+    acceleration.}
+    \label{fig:ch5-modal-amplification-cartoon}
+\end{figure}
+
+% ============================================================
+\section{PML compatibility is operator compatibility}
+\label{sec:ch5-pml}
+% ============================================================
+
+The preceding modal discussion is exact for a symmetric Dirichlet model
+problem. The solver-facing two-dimensional system in this thesis is different:
+it uses a finite-difference/PML operator on a full computational grid. The PML
+region is not a visual padding region around the physical domain. It is part
+of the discrete operator.
+
+This has an important consequence for learned transfer. Suppose a network
+predicts a high-frequency field that is accurate in the physical interior but
+inconsistent in the absorbing layer. The interior field may look acceptable,
+and the interior relative error may be small, but the full-grid residual
+\begin{equation}
+    r_0
+    =
+    b-\mathbf{A}_H x_0
+    \label{eq:ch5-pml-residual}
+\end{equation}
+is computed with the same FD/PML operator used by the solver. If the PML
+values are incompatible with the stencil, coefficient stretching, or boundary
+treatment, the residual can become large even when the physical-domain plot
+looks reasonable.
+
+It is therefore not generally safe to zero the PML output of a learned field,
+nor to train only on the physical interior and assume that the solver will
+ignore the absorbing layer. The PML is part of the algebraic problem. A
+solver-facing transfer model must either predict the full-grid PML field in an
+operator-compatible way or explicitly construct a correction whose full-grid
+residual is controlled.
+
+\begin{figure}[htbp]
+    \centering
+    \chfiveincludegraphics{0.88\linewidth}{figures/ch5/pml_operator_compatibility.png}
+    \caption{PML compatibility as an operator issue. The physical interior may
+    contain the visually important wavefield, but the residual is computed by
+    the full FD/PML operator. A learned prediction that mishandles the
+    absorbing layer can therefore be a poor solver state even if the interior
+    field appears accurate.}
+    \label{fig:ch5-pml-operator-compatibility}
+\end{figure}
+
+This observation connects the one-dimensional and two-dimensional parts of the
+thesis. The Dirichlet problem explains residual amplification exactly through
+eigenmodes. The PML problem replaces that clean spectral picture by a
+complex-valued, generally non-normal operator. The diagnostic principle,
+however, is unchanged: apply the same operator that the solver applies, and
+measure the residual it produces.
+
+% ============================================================
+\section{Learning objectives}
+\label{sec:ch5-objectives}
+% ============================================================
+
+The most direct objective for solution transfer is the complex relative
+$\ell^2$ field loss
+\begin{equation}
+    \mathcal{L}_{\mathrm{field}}
+    =
+    \frac{\|\hat{u}_H-u_H\|_2^2}
+         {\|u_H\|_2^2+\varepsilon}.
+    \label{eq:ch5-field-loss}
+\end{equation}
+The real and imaginary parts are represented as separate channels in the
+network, but the norm is interpreted as the norm of the complex vector. This
+objective is natural for learning $T_{\uparrow}^{\mathrm{sol}}$, and it is the
+right first question: can the model predict the high-frequency wavefield from
+the low-frequency wavefield?
+
+For a preconditioner, however, the natural objective is residual-based. If a
+network predicts a correction $\hat{e}$ for a residual $r$, then the solver
+task is
+\begin{equation}
+    \mathbf{A}\hat{e}
+    \approx
+    r.
+\end{equation}
+A corresponding loss is
+\begin{equation}
+    \mathcal{L}_{\mathrm{res}}
+    =
+    \frac{\|\mathbf{A}\hat{e}-r\|_2^2}
+         {\|r\|_2^2+\varepsilon}.
+    \label{eq:ch5-residual-loss}
+\end{equation}
+This objective is more aligned with Krylov acceleration than
+\eqref{eq:ch5-field-loss}. It is also more demanding, because applying
+$\mathbf{A}$ exposes high-amplification components of the error.
+
+A third option is to measure residual error in a preconditioned norm. If
+$\mathbf{M}^{-1}$ is a trusted baseline preconditioner, such as complex
+shifted Laplace, then
+\begin{equation}
+    \mathcal{L}_{\mathrm{prec}}
+    =
+    \frac{\|\mathbf{M}^{-1}(\mathbf{A}\hat{e}-r)\|_2^2}
+         {\|\mathbf{M}^{-1}r\|_2^2+\varepsilon}
+    \label{eq:ch5-preconditioned-residual-loss}
+\end{equation}
+asks whether the learned correction is useful in the norm seen by the
+preconditioned Krylov process. This is not identical to the true residual, but
+it can be a meaningful training or diagnostic quantity when the learned method
+is intended to augment a baseline preconditioner.
+
+\begin{table}[htbp]
+    \centering
+    \caption{Learning objectives and the mathematical question each one
+    answers.}
+    \label{tab:ch5-objectives}
+    \begin{tabular}{@{}p{0.24\linewidth}p{0.38\linewidth}p{0.28\linewidth}@{}}
+        \toprule
+        Objective & Question answered & Best use \\
+        \midrule
+        Field loss
+        & Does the predicted wavefield match the target solution?
+        & Solution transfer and warm starts \\
+        Residual loss
+        & Does the predicted correction solve $\mathbf{A}e=r$?
+        & Correction learning and learned preconditioning \\
+        Preconditioned residual loss
+        & Does the correction help in the baseline preconditioned norm?
+        & Hybrid learned/classical methods \\
+        Modal or gated diagnostics
+        & In which components is the learned correction residual-safe?
+        & Interpretation and robust selection \\
+        \bottomrule
+    \end{tabular}
+\end{table}
+
+The later chapters use these distinctions to organise the experimental
+evidence. A model may be successful under a field objective but insufficient
+as a solver component. Conversely, a selective correction can be valuable even
+if it modifies only a small part of the field, provided that it reduces the
+residual components that control convergence.
+
+% ============================================================
+\section{Architectural implications}
+\label{sec:ch5-architecture}
+% ============================================================
+
+The preceding analysis suggests several architectural requirements for learned
+frequency transfer.
+
+First, the model needs a nontrivial receptive field. The phase transformation
+from $\omega_L$ to $\omega_H$ depends on propagation distance and cannot be
+represented by independent pointwise scaling. Convolutional architectures are
+therefore natural because they approximate local integral kernels and can
+aggregate neighbouring wavefield information.
+
+Second, the representation must preserve complex phase. This thesis represents
+complex fields by real and imaginary channels. An amplitude--phase
+representation is possible, but it introduces discontinuities at phase wraps,
+which are inconvenient for standard convolutional networks.
+
+Third, the model needs multiscale structure. Low frequencies carry broad
+propagation envelopes; high frequencies require oscillatory detail. A U-Net is
+a natural architecture because the encoder aggregates large-scale context and
+the decoder reconstructs fine-scale structure, while skip connections preserve
+spatial detail.
+
+Fourth, architecture alone does not guarantee solver usefulness. A network can
+have enough expressive power to predict plausible fields and still produce
+residual-unfriendly components. The solver-facing tests must therefore include
+true residuals, preconditioned residuals, modal diagnostics where available,
+and FGMRES convergence.
+
+\begin{figure}[htbp]
+    \centering
+    \chfiveincludegraphics{0.90\linewidth}{figures/ch5/unet_frequency_transfer_schematic.png}
+    \caption{U-Net as a frequency-transfer model. The encoder aggregates
+    large-scale wavefield structure, while skip connections preserve
+    oscillatory detail needed by the decoder. The same architectural family
+    can be used for solution transfer or correction prediction, but the target
+    and loss determine which mathematical object is learned.}
+    \label{fig:ch5-unet-frequency-transfer-schematic}
+\end{figure}
+
+This thesis focuses on U-Net transfer models because they are expressive
+enough to learn frequency-coherent solution maps, while still being simple
+enough to diagnose. The scientific question is not whether a larger neural
+operator can reduce field loss further. The question is whether learned
+frequency information can be made residual-compatible with the Helmholtz
+solver.
+
+% ============================================================
+\section{Summary}
+\label{sec:ch5-summary}
+% ============================================================
+
+This chapter introduced the frequency transfer operator as the mathematical
+link between low- and high-frequency Helmholtz fields. The Green's function
+shows why such transfer is physically plausible: changing frequency modifies
+phase and amplitude scale while preserving propagation geometry. Exact
+solution transfer is therefore well-defined as
+$\mathcal{T}_{\uparrow}^{\mathrm{sol}}=\mathcal{A}_H^{-1}\mathcal{A}_L$.
+
+The chapter also established the central caution. A solution-transfer operator
+is not automatically a preconditioner. A warm start is judged by the residual
+it induces under the high-frequency operator, and an in-Krylov preconditioner
+must map residuals to corrections. Because
+$r_0=\mathbf{A}_H(u_H-x_0)$, small field error can become large residual error
+when the error lies in operator-amplified components.
+
+This distinction motivates the computational and experimental chapters that
+follow. The computational setup specifies the discrete operators, datasets,
+models, and residual metrics needed to test the idea without ambiguity. The
+results then ask the solver-facing question: when does learned frequency
+transfer remain useful after the high-frequency Helmholtz operator, the PML,
+and the Krylov residual have all been taken seriously?
+
+% ============================================================
+% Recommended visual plan for this chapter
+% ============================================================
+%
+% Essential figures:
+% 1. figures/ch5/green_frequency_coherence.png
+%    Real parts of Green's functions at several frequencies.
+%    Purpose: show common propagation geometry and increasing oscillation.
+%
+% 2. figures/ch5/radial_green_cross_section.png
+%    Radial amplitude and real-part cross sections for a doubled-frequency pair.
+%    Purpose: show the 1/sqrt(2) far-field amplitude scaling and doubled phase.
+%
+% 3. figures/ch5/solution_transfer_operator_schematic.png
+%    Diagram of f -> A_L^{-1} -> u_L -> T_up^sol -> u_H and
+%    f -> A_H^{-1} -> u_H.
+%    Purpose: define exact solution transfer without ambiguity.
+%
+% 4. figures/ch5/three_transfer_objects.png
+%    Three rows: solution transfer, residual restriction, correction
+%    prolongation.
+%    Purpose: prevent the central conceptual confusion.
+%
+% 5. figures/ch5/modal_amplification_cartoon.png
+%    Small field-error coefficients multiplied by lambda_k become residual
+%    coefficients.
+%    Purpose: foreshadow the 1D spectral diagnostics in the Results chapter.
+%
+% 6. figures/ch5/pml_operator_compatibility.png
+%    Full-grid FD/PML operator acting on a prediction with interior and PML
+%    regions marked.
+%    Purpose: show that PML compatibility is residual/operator compatibility.
+%
+% 7. figures/ch5/learned_vcycle_schematic.png
+%    r_H -> R_theta -> A_L^{-1} -> P_theta -> z_H inside FGMRES.
+%    Purpose: show the learned preconditioning path.
+%
+% Optional figure:
+% 8. figures/ch5/unet_frequency_transfer_schematic.png
+%    U-Net encoder/decoder with complex channels.
+%    Purpose: support the architecture section if space permits.

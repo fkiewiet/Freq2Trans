@@ -1,0 +1,16 @@
+{
+  "plot": "3",
+  "omega_l": 16.0,
+  "omega_h": 32.0,
+  "n_grid": 512,
+  "ckpt_green": "experiments/claude/eigenvalue_1d/corrected_flux_pipeline/outputs_dirichlet_latest/runs_train1d/pair_16_32_dirichlet_n512/T_up/best.pt",
+  "ckpt_flux_full": "experiments/claude/eigenvalue_1d/corrected_flux_pipeline/outputs/runs/pair_16_32_flux_full/T_up/best.pt",
+  "device": "cpu",
+  "n_samples": 20,
+  "seed": 20260515,
+  "out_root": "experiments/claude/eigenvalue_1d/corrected_flux_pipeline/outputs_john_plots",
+  "csl_beta": 0.3,
+  "gmres_tol": 1e-06,
+  "gmres_restart": 100,
+  "gmres_maxiter": 80
+}

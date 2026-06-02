@@ -1,0 +1,710 @@
+% !TEX root = ../main.tex
+% ============================================================
+% Computational setup chapter
+% Revised to match the frequency-transfer and results chapters.
+% Focus: discrete systems, datasets, models, solvers, and
+% residual-compatible diagnostics.
+% ============================================================
+
+\chapter{Computational setup}
+\label{chapter:computational-setup}
+
+\providecommand{\chsetupincludegraphics}[2]{%
+    \IfFileExists{#2}{%
+        \includegraphics[width=#1]{#2}%
+    }{%
+        \fbox{%
+            \parbox[c][0.22\textheight][c]{0.86\linewidth}{%
+                \centering
+                \textbf{Figure placeholder}\\[0.6em]
+                \texttt{\detokenize{#2}}%
+            }%
+        }%
+    }%
+}
+
+The previous chapter introduced frequency transfer as a physically plausible
+way to use a low-frequency Helmholtz solution in a high-frequency solve. It
+also made the main solver-facing distinction: a learned field predictor is not
+automatically a learned preconditioner. A Krylov method is controlled by
+residuals, so every learned component must eventually be tested by the
+discrete operator that the solver applies.
+
+This chapter specifies the computational setup used to make that distinction
+measurable. The purpose is not to report the experimental outcomes; those are
+given in Chapter~\ref{chapter:results}. Instead, this chapter defines the
+discrete Helmholtz systems, data conventions, neural transfer models,
+preconditioned FGMRES protocol, and diagnostic quantities used later.
+
+The experiments use three settings. The one-dimensional Dirichlet problem is a
+controlled spectral microscope: its eigenvectors are known analytically, so
+field-error components can be compared directly with residual components. The
+one-dimensional PML problem is an intermediate test: it keeps the problem
+small but introduces the absorbing-layer compatibility issue. The
+two-dimensional finite-difference/PML problem is the solver-facing setting:
+the learned field is evaluated on the same full grid and with the same
+operator used by FGMRES.
+
+% ============================================================
+\section{Discrete Helmholtz systems}
+\label{sec:setup-discrete-systems}
+% ============================================================
+
+All experiments solve linear systems of the form
+\begin{equation}
+    A_\omega u_\omega = b,
+    \label{eq:setup-linear-system}
+\end{equation}
+where $\omega$ is the angular frequency, $u_\omega$ is the complex-valued
+wavefield, and $b$ is the complex-valued source. The residual convention is
+\begin{equation}
+    r(x)=b-A_\omega x.
+    \label{eq:setup-residual}
+\end{equation}
+This convention is used for training diagnostics, warm-start evaluation, and
+FGMRES convergence plots. It is important because the central question is not
+only whether a neural prediction resembles the high-frequency solution, but
+whether it is compatible with the high-frequency discrete equation.
+
+% ------------------------------------------------------------
+\subsection{One-dimensional Dirichlet problem}
+\label{subsec:setup-1d-dirichlet}
+% ------------------------------------------------------------
+
+The clean diagnostic problem is the homogeneous one-dimensional Dirichlet
+Helmholtz system with $N=512$ unknowns and no absorbing layer. The tested
+frequency pair is
+\begin{equation}
+    \omega_L=16,
+    \qquad
+    \omega_H=32.
+    \label{eq:setup-1d-dirichlet-pair}
+\end{equation}
+With the sign convention used throughout the one-dimensional spectral
+analysis,
+\begin{equation}
+    A_\omega=-D_{xx}-\omega^2 I.
+    \label{eq:setup-1d-dirichlet-operator}
+\end{equation}
+The eigenpairs are analytical:
+\begin{equation}
+    \lambda_k(\omega)
+    =
+    \frac{4}{h^2}
+    \sin^2\!\left(\frac{\pi k}{2(N+1)}\right)
+    -
+    \omega^2,
+    \qquad
+    v_k(j)
+    =
+    \sqrt{\frac{2}{N+1}}
+    \sin\!\left(\frac{j k \pi}{N+1}\right),
+    \label{eq:setup-dirichlet-eigenpairs}
+\end{equation}
+for $j,k=1,\dots,N$. The eigenvectors are Euclidean-normalised. Therefore, if
+$u_\star$ is the high-frequency solution, $x_0$ is an initial guess, and
+$e_0=u_\star-x_0$, then
+\begin{equation}
+    r_0=b-A_Hx_0=A_He_0,
+    \qquad
+    c_k(r_0)=\lambda_k c_k(e_0).
+    \label{eq:setup-modal-residual-map}
+\end{equation}
+This identity is the reason for including the Dirichlet problem. It turns the
+field-error/residual-error distinction from a qualitative warning into an
+exact mode-by-mode diagnostic.
+
+% ------------------------------------------------------------
+\subsection{One-dimensional PML problem}
+\label{subsec:setup-1d-pml}
+% ------------------------------------------------------------
+
+The one-dimensional PML problem uses the same frequency pair, $16\to32$, but
+replaces the simple Dirichlet boundary treatment by an absorbing layer. This
+setting is deliberately intermediate. It is still small enough for careful
+inspection and repeated solver runs, but the simple symmetric sine-basis
+analysis no longer applies in the same way because the PML operator is
+complex-valued and generally non-normal.
+
+The role of this experiment is to test operator compatibility in the absorbing
+layer. A predicted field can be good in the physical region while producing a
+large full-grid residual if the PML values are inconsistent with the discrete
+stencil and stretching coefficients. For this reason, the PML experiment
+reports full-grid field errors, true residuals, preconditioned residuals, and
+FGMRES curves, but does not present the PML problem as an exact modal
+decomposition.
+
+% ------------------------------------------------------------
+\subsection{Two-dimensional FD/PML problem}
+\label{subsec:setup-2d-fd-pml}
+% ------------------------------------------------------------
+
+The solver-facing experiments use a two-dimensional finite-difference
+Helmholtz operator on a full $512\times512$ computational grid. A PML of width
+$112$ grid points surrounds the physical domain on each side, leaving a
+$288\times288$ interior. The tested frequency pairs are
+\begin{equation}
+    16\to32,
+    \qquad
+    32\to64,
+    \qquad
+    64\to128.
+    \label{eq:setup-2d-pairs}
+\end{equation}
+
+The PML is treated as part of the algebraic system, not as a removable visual
+border. All solver-facing residuals are computed on the full $512\times512$
+grid using the same FD/PML operator used by FGMRES. Interior metrics are
+reported only as additional diagnostics. The primary question is whether the
+predicted full-grid field gives a useful state for the original
+high-frequency equation.
+
+\begin{table}[htbp]
+\centering
+\caption{Discrete systems used in the experiments. The Dirichlet problem gives
+an exact spectral diagnostic, the 1D PML problem isolates absorbing-layer
+compatibility, and the 2D FD/PML problem is the full solver-facing setting.}
+\label{tab:setup-systems}
+\begin{tabular}{lcccl}
+\toprule
+Setting & Grid & PML width & Interior & Frequency pairs \\
+\midrule
+1D Dirichlet & $512$ & none & $512$ & $16\to32$ \\
+1D PML & problem-dependent & included & physical subdomain & $16\to32$ \\
+2D FD/PML & $512\times512$ & $112$ per side & $288\times288$ &
+$16\to32$, $32\to64$, $64\to128$ \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{figure}[htbp]
+    \centering
+    \chsetupincludegraphics{0.88\linewidth}{figures/ch6/discrete_systems_overview.png}
+    \caption{Recommended overview figure for the three computational systems:
+    1D Dirichlet, 1D PML, and 2D FD/PML. The figure should show which region
+    belongs to the physical domain, which region belongs to the PML when
+    present, and which operator is used to compute the residual.}
+    \label{fig:setup-discrete-systems-overview}
+\end{figure}
+
+% ============================================================
+\section{Datasets and source conventions}
+\label{sec:setup-datasets}
+% ============================================================
+
+Each supervised frequency-transfer sample contains a source, a
+low-frequency solution, and the corresponding high-frequency solution. Complex
+quantities are stored by real and imaginary channels. The source convention is
+therefore part of the data specification: both source channels are retained so
+that the learned model and the residual evaluation refer to the same complex
+linear system.
+
+The two-dimensional FD/PML datasets contain $9600$ full-grid samples for each
+frequency pair. Each sample uses a complex Gaussian source and stores the
+low- and high-frequency solutions on the full $512\times512$ grid. The
+imaginary source channel is stored. Dataset audits were performed before the
+solver-facing evaluations, so the data used for the neural models and the
+data used for residual evaluation refer to the same complex-valued FD/PML
+convention.
+
+The full-grid convention is a deliberate correction to earlier
+interior-focused workflows. A model trained only on the physical interior can
+appear accurate in plots while leaving the absorbing layer incompatible with
+the operator. The modern datasets therefore keep the PML part of the
+wavefield in the training target and in the residual evaluation.
+
+\begin{table}[htbp]
+\centering
+\caption{Two-dimensional FD/PML dataset specification. Each transfer pair has
+$9600$ full-grid samples with complex Gaussian sources.}
+\label{tab:setup-2d-datasets}
+\begin{tabular}{lccc}
+\toprule
+Pair & Samples & Stored source channels & Stored solution region \\
+\midrule
+$16\to32$ & $9600$ & real and imaginary & full $512\times512$ grid \\
+$32\to64$ & $9600$ & real and imaginary & full $512\times512$ grid \\
+$64\to128$ & $9600$ & real and imaginary & full $512\times512$ grid \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+The one-dimensional datasets are used for diagnostic rather than production
+scale. The Dirichlet data support exact modal analysis, spectral filtering,
+and residual gating. The 1D PML data support the comparison between older
+PML-handling conventions and the corrected full-flux PML convention used in
+the Results chapter.
+
+% ============================================================
+\section{Neural transfer models}
+\label{sec:setup-neural-models}
+% ============================================================
+
+The learned models are supervised frequency-transfer maps. In the warm-start
+experiments, the model predicts a high-frequency field from a lower-frequency
+field and the prediction is used as the initial guess for FGMRES. In the
+one-dimensional diagnostic experiments, the same learned information is also
+filtered, gated, or inserted into learned preconditioning variants in order to
+test whether it can be made residual-compatible.
+
+Complex fields are represented in real arithmetic by separate real and
+imaginary channels. The basic field loss is the complex relative $\ell^2$
+error
+\begin{equation}
+    \mathcal{L}_{\mathrm{field}}
+    =
+    \frac{\|\hat{u}_H-u_H\|_2}{\|u_H\|_2}.
+    \label{eq:setup-field-loss}
+\end{equation}
+This objective measures field prediction quality. It does not by itself
+guarantee a small residual under $A_H$.
+
+% ------------------------------------------------------------
+\subsection{One-dimensional models}
+\label{subsec:setup-1d-models}
+% ------------------------------------------------------------
+
+The one-dimensional Dirichlet model is a U-Net trained to map $u_{16}$ to
+$u_{32}$. The final model uses the real and imaginary parts of the
+low-frequency field together with real and imaginary right-hand-side channels.
+The target is the complex high-frequency solution. Its best validation field
+loss is approximately $5.37\times10^{-3}$, so it is a strong field predictor
+in the controlled Dirichlet setting.
+
+The Results chapter uses this model in several diagnostic roles. First, it is
+used raw as a warm start. Second, its modal content is filtered or gated in
+the known Dirichlet eigenbasis. Additional residual-correction experiments are
+treated as diagnostic extensions: they separate residual restriction,
+low-frequency solving, and high-frequency correction prolongation, but they
+are not the main solver claim of the thesis. Their role is to test whether the
+field-trained information can be made safe for the residual.
+
+The one-dimensional PML comparison uses learned starts that differ mainly in
+how they handle the absorbing layer. The older green-function/PML variants are
+compared with a corrected flux-full model. The key distinction is whether the
+PML output is kept, zeroed, or trained as part of the full
+operator-compatible field.
+
+% ------------------------------------------------------------
+\subsection{Two-dimensional full-grid model}
+\label{subsec:setup-2d-model}
+% ------------------------------------------------------------
+
+The main two-dimensional model is a full-grid flux-trained
+\texttt{TransferUNet} with \texttt{base\_ch=32} and five levels. The input is
+the real and imaginary parts of the low-frequency field. The target is the
+real and imaginary parts of the high-frequency field on the full
+$512\times512$ FD/PML grid. The loss is again the complex relative $\ell^2$
+field loss, evaluated on the full grid. Older interior-loss models are kept as
+baselines because they expose the PML failure mode: they can predict the
+physical interior well while producing an absorbing-layer output that is
+incompatible with the full operator.
+
+\begin{table}[htbp]
+\centering
+\caption{Neural transfer models used in the experiments. The models are field
+predictors by training objective; solver usefulness is tested separately by
+residuals and FGMRES curves.}
+\label{tab:setup-models}
+\begin{tabular}{llll}
+\toprule
+Setting & Model & Input channels & Training target \\
+\midrule
+1D Dirichlet & U-Net & $u_L$ and RHS, real/imag & full-grid $u_H$ \\
+1D PML & PML transfer variants & $u_L$-based channels & full/PML-dependent $u_H$ \\
+2D FD/PML & \texttt{TransferUNet}, \texttt{base\_ch=32}, 5 levels &
+$u_L$, real/imag & full-grid $u_H$ \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{figure}[htbp]
+    \centering
+    \chsetupincludegraphics{0.90\linewidth}{figures/ch6/model_and_data_pipeline.png}
+    \caption{Model and data pipeline used for learned frequency transfer. Complex sources generate paired low- and high-frequency solutions; the U-Net is trained as a field predictor using real and imaginary channels; and the resulting warm start is evaluated with solver-native residuals and FGMRES behaviour.}
+    \label{fig:setup-model-data-pipeline}
+\end{figure}
+
+% ============================================================
+\section{Warm starts and learned correction tests}
+\label{sec:setup-warm-starts-corrections}
+% ============================================================
+
+The simplest learned solver use is a warm start:
+\begin{equation}
+    x_0=\hat{u}_H=T_{\uparrow,\theta}^{\mathrm{sol}}u_L.
+    \label{eq:setup-warm-start}
+\end{equation}
+The cold-start baseline is $x_0=0$. For a warm start, the initial true
+relative residual is
+\begin{equation}
+    r_0^{\mathrm{true}}
+    =
+    \frac{\|b-A_Hx_0\|_2}{\|b\|_2}.
+    \label{eq:setup-true-initial-residual}
+\end{equation}
+This is the headline algebraic diagnostic for the initial state.
+
+The one-dimensional Dirichlet experiments also test residual-aware selection.
+Because the eigenbasis is known, a learned modal component can be accepted
+only when it reduces the corresponding residual contribution relative to the
+baseline. This residual gate is used as an explanatory device. It demonstrates
+that a field-trained model may contain useful solver-facing components even
+when the raw prediction is not residual-safe.
+
+For learned correction tests, the mathematical role changes. A
+preconditioner receives a residual and returns a correction. The relevant
+ideal is therefore
+\begin{equation}
+    A_H z_H \approx r_H,
+    \label{eq:setup-correction-task}
+\end{equation}
+not direct prediction of a complete high-frequency solution. The diagnostic
+experiments distinguish three objects:
+\begin{align}
+    T_{\uparrow}^{\mathrm{sol}} &: u_L \mapsto u_H,
+    &&\text{solution transfer}, \label{eq:setup-object-solution}\\
+    R &: r_H \mapsto r_L \text{ or } e_L,
+    &&\text{residual restriction}, \label{eq:setup-object-restriction}\\
+    P &: e_L \mapsto e_H,
+    &&\text{correction prolongation}. \label{eq:setup-object-prolongation}
+\end{align}
+These roles match the conceptual separation introduced in
+Chapter~\ref{ch:frequency-transfer}. In the Results chapter this distinction
+is used mainly to interpret the warm-start and gating results; extended
+residual-correction tests are best reported as appendix material unless they
+produce a clear iteration-count improvement.
+
+% ============================================================
+\section{CSL-FGMRES solver protocol}
+\label{sec:setup-solver-protocol}
+% ============================================================
+
+The solver-facing experiments use FGMRES with a complex shifted Laplace (CSL)
+preconditioner. For the high-frequency operator $A$, the shifted operator has
+the same discrete Laplacian and a complex-shifted mass term, schematically
+\begin{equation}
+    M_\beta
+    =
+    -\Delta_h-(1+i\beta)\omega^2 I,
+    \label{eq:setup-csl-operator}
+\end{equation}
+with the same boundary or PML convention as the corresponding Helmholtz
+operator. The preconditioner applies $M_\beta^{-1}$ through an exact sparse
+LU solve of the shifted operator. In the reported main results, the damping is
+fixed at
+\begin{equation}
+    \beta=0.3.
+    \label{eq:setup-csl-beta}
+\end{equation}
+Earlier $\beta=0.1$ experiments are not used for the main comparison because
+mixing damping values would obscure whether a difference comes from the
+learned start or from the classical preconditioner.
+
+For a fixed frequency, grid, PML convention, and damping value, the sparse
+operator and CSL factorisation are assembled once and reused across
+right-hand sides whenever possible. This keeps the comparison focused on the
+initial state and Krylov behaviour rather than repeated setup cost. In
+warm-start comparisons, the operator, right-hand side, preconditioner,
+tolerance, and iteration budget are held fixed; only the initial guess
+changes.
+
+The two-dimensional solver evaluation uses $10$ test samples per frequency
+pair and a fixed budget of $40$ FGMRES iterations. At $\beta=0.3$, the
+reported 2D runs do not reach the target tolerance within this budget.
+Therefore, the finite-budget final residual is the meaningful 2D comparison,
+not the nominal iteration count to convergence.
+
+\begin{table}[htbp]
+\centering
+\caption{Solver-evaluation protocol for the main comparisons in
+Chapter~\ref{chapter:results}.}
+\label{tab:setup-solver-protocol}
+\begin{tabular}{ll}
+\toprule
+Quantity & Protocol \\
+\midrule
+Krylov method & FGMRES \\
+Cold start & $x_0=0$ \\
+Neural warm start & $x_0=\hat{u}_H$ \\
+Primary initial metric & $\|b-A_Hx_0\|_2/\|b\|_2$ \\
+Classical preconditioner & CSL \\
+Main CSL damping & $\beta=0.3$ \\
+CSL application & exact sparse LU solve of shifted operator \\
+2D test samples & $10$ per frequency pair \\
+2D iteration budget & $40$ iterations \\
+2D main comparison & finite-budget final true residual \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+% ------------------------------------------------------------
+\subsection{Left and right preconditioning}
+\label{subsec:setup-left-right-preconditioning}
+% ------------------------------------------------------------
+
+The Results chapter includes an explicit left-versus-right preconditioning
+comparison for the one-dimensional Dirichlet problem. The distinction matters
+because the residual minimised by GMRES depends on how the preconditioner is
+inserted. Left preconditioning solves
+\begin{equation}
+    M^{-1}Ax=M^{-1}b,
+    \label{eq:setup-left-preconditioning}
+\end{equation}
+whereas right preconditioning solves
+\begin{equation}
+    AM^{-1}y=b,
+    \qquad
+    x=M^{-1}y.
+    \label{eq:setup-right-preconditioning}
+\end{equation}
+
+The primary thesis metric is always the true residual of the original
+Helmholtz system,
+\begin{equation}
+    \frac{\|b-Ax_k\|_2}{\|b\|_2}.
+    \label{eq:setup-true-residual}
+\end{equation}
+The preconditioned residual
+\begin{equation}
+    \frac{\|M^{-1}(b-Ax_k)\|_2}{\|M^{-1}b\|_2}
+    \label{eq:setup-preconditioned-residual}
+\end{equation}
+is also reported when it explains what the preconditioner presents to the
+Krylov process. This separation prevents a left-preconditioned curve from
+being mistaken for the true residual of the original Helmholtz equation.
+
+\begin{figure}[htbp]
+    \centering
+    \chsetupincludegraphics{0.86\linewidth}{figures/ch6/residual_norms_schematic.png}
+    \caption{Recommended residual-norm schematic. The figure should contrast
+    the true residual $\|b-Ax_k\|_2/\|b\|_2$ with the preconditioned residual
+    $\|M^{-1}(b-Ax_k)\|_2/\|M^{-1}b\|_2$, and indicate why left and right
+    preconditioning can make these curves tell different stories.}
+    \label{fig:setup-residual-norms-schematic}
+\end{figure}
+
+% ============================================================
+\section{Diagnostics and metrics}
+\label{sec:setup-metrics}
+% ============================================================
+
+The thesis reports several diagnostic quantities because no single scalar
+captures the behaviour of a learned Helmholtz solver component.
+
+\paragraph{Field error.}
+The relative field error is
+\begin{equation}
+    E_{\mathrm{field}}
+    =
+    \frac{\|\hat{u}_H-u_H\|_2}{\|u_H\|_2}.
+    \label{eq:setup-field-error}
+\end{equation}
+In 2D this may be reported on both the full grid and the physical interior.
+The full-grid value is the primary quantity for the modern FD/PML models,
+because the solver applies the full-grid operator.
+
+\paragraph{Initial true residual.}
+The initial true residual is
+\begin{equation}
+    E_{\mathrm{res},0}
+    =
+    \frac{\|b-A_Hx_0\|_2}{\|b\|_2}.
+    \label{eq:setup-initial-true-residual}
+\end{equation}
+This is the first solver-facing test of a learned warm start. A prediction can
+have small field error and still have a worse initial true residual than the
+cold start.
+
+\paragraph{Preconditioned residual.}
+When CSL is active, the preconditioned residual
+\begin{equation}
+    E_{\mathrm{prec},0}
+    =
+    \frac{\|M^{-1}(b-A_Hx_0)\|_2}{\|M^{-1}b\|_2}
+    \label{eq:setup-initial-preconditioned-residual}
+\end{equation}
+is reported as an explanatory diagnostic. It is especially useful when a raw
+learned start has a large true residual but a much smaller residual after CSL
+preconditioning.
+
+\paragraph{FGMRES curves and finite-budget residuals.}
+Convergence curves are reported because different starts can enter FGMRES
+with very different residual levels and then converge with similar later
+slopes. For the 2D FD/PML experiments at $\beta=0.3$, no method reaches the
+target tolerance within the fixed $40$-iteration budget, so the final residual
+after that budget is the main solver-facing comparison.
+
+\paragraph{Modal diagnostics.}
+In the 1D Dirichlet problem, the sine eigenbasis gives exact modal
+coefficients. This makes it possible to identify which field-error components
+are amplified into residual components and to test residual gating mode by
+mode.
+
+\paragraph{PML diagnostics.}
+In PML settings, the absorbing layer is diagnosed by full-grid residuals and,
+when useful, by ratios that compare PML-region field magnitude with full-grid
+or interior behaviour. These diagnostics are included because zeroing or
+mishandling the PML can improve the appearance of the physical-domain plot
+while damaging the operator residual.
+
+\begin{figure}[htbp]
+    \centering
+    \chsetupincludegraphics{0.92\linewidth}{figures/ch6/metric_dashboard_example.png}
+    \caption{Recommended metric-dashboard figure. For one representative
+    sample, show field error, true initial residual, preconditioned residual,
+    and the first part of the FGMRES curve. This would make clear why the
+    thesis does not judge learned transfer by field loss alone.}
+    \label{fig:setup-metric-dashboard}
+\end{figure}
+
+% ============================================================
+\section{Computational workflow and artifacts}
+\label{sec:setup-workflow-artifacts}
+% ============================================================
+
+The computational workflow has four stages: dataset generation,
+neural-network training, solver evaluation, and diagnostic analysis. Dataset
+generation and solver evaluation are dominated by sparse Helmholtz solves.
+Neural-network training is dominated by GPU throughput. One-dimensional
+spectral diagnostics are small enough to support dense checks or analytical
+eigenbasis calculations.
+
+\begin{table}[htbp]
+\centering
+\caption{Computational stages used in the experiments. The final evaluation is
+solver-native: field loss is recorded, but residuals and FGMRES behaviour
+decide whether a variant is useful.}
+\label{tab:setup-computational-stages}
+\begin{tabular}{lll}
+\toprule
+Stage & Main bottleneck & Primary outputs \\
+\midrule
+Dataset generation & Sparse solves and I/O & fields, sources, metadata \\
+Neural-network training & GPU throughput & checkpoints, validation losses \\
+Solver evaluation & Sparse solves and FGMRES & residuals, iterations, curves \\
+Diagnostic analysis & spectra, plots, summaries & modal/PML diagnostics and figures \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Experiment outputs are kept in named directories that record the frequency
+pair, boundary/PML convention, training objective, or diagnostic family.
+Corrected pipelines are stored separately from exploratory pipelines rather
+than overwriting them. This matters because several conventions can produce
+similar-looking wavefield plots while representing different algebraic
+systems. Green-function data, interior-focused PML data, row-scaled PML data,
+and corrected full-grid FD/PML data should therefore not be mixed without
+explicit labels.
+
+For thesis-quality runs, the reproducibility record consists of the launch
+script or sweep specification, numerical metadata, trained checkpoint, summary
+table, residual curves, and figure-generation script. Training checkpoints
+such as \texttt{best.pt} and \texttt{last.pt} are retained when applicable, so
+that a model can be evaluated or resumed without reconstructing the run from
+terminal history. Derived quantities such as residuals, modal coefficients,
+and plots are treated as regenerable analysis artifacts rather than primary
+dataset fields.
+
+The main one-dimensional artifacts used by the Results chapter are stored
+under the corrected flux-pipeline output tree,
+\begin{center}
+\texttt{experiments/claude/eigenvalue\_1d/corrected\_flux\_pipeline/}.
+\end{center}
+The final chapter figures are copied from the relevant analysis folders into
+\texttt{figures/ch7/}. The important reproducibility point is the naming
+convention: the figure names identify whether the plot is Dirichlet or PML,
+whether it is a true or preconditioned residual, and which frequency pair and
+CSL damping value were used.
+
+The main presentation plots for two-dimensional experiments are stored under
+\begin{center}
+\texttt{experiments/2d/presentation\_plots/}.
+\end{center}
+The full-grid training curves use the \texttt{flux\_full\_N9600} outputs, and
+the solver-facing curves use the corresponding full-grid solver-evaluation
+outputs.
+The figure captions in Chapter~\ref{chapter:results} record the copied figure
+name used for each reported claim, while the experiment directories retain the
+regenerable scripts, summaries, and raw curves.
+
+\begin{table}[htbp]
+\centering
+\caption{Main computational risks and safeguards in the modern experiments.}
+\label{tab:setup-computational-safeguards}
+\begin{tabular}{lll}
+\toprule
+Risk & Consequence & Safeguard \\
+\midrule
+Wrong discretisation convention & misleading residuals or spectra &
+validate in 1D first \\
+Field loss improves only visually & no Krylov benefit &
+evaluate true residuals and FGMRES curves \\
+PML incompatibility & inflated full-grid residual &
+train and evaluate full-grid FD/PML fields \\
+Mixed CSL damping values & ambiguous solver comparison &
+use $\beta=0.3$ for main results \\
+Untraceable sweeps & irreproducible comparisons &
+use named output folders and summaries \\
+Repeated setup costs & distorted timing interpretation &
+reuse operators and factorizations \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+The hardware organisation follows from these stages but is not itself a
+scientific variable. Local runs are used for syntax checks, small validation
+tests, and plotting. Interactive GPU servers are used for training and rapid
+solver debugging. Cluster resources are used for long sweeps and repeated
+benchmarks. Across all environments, the rule is to use the smallest
+computation that answers the current question reliably and reserve large runs
+for designs that have already passed small-scale validation.
+
+% ============================================================
+\section{Summary}
+\label{sec:setup-summary}
+% ============================================================
+
+This chapter defined the computational setup used to test learned frequency
+transfer as a solver component. The one-dimensional Dirichlet problem provides
+an exact spectral diagnostic for residual amplification. The one-dimensional
+PML problem tests absorbing-layer compatibility without the full cost and
+complexity of the two-dimensional setting. The two-dimensional FD/PML problem
+is the main solver-facing evaluation, with full-grid training targets and
+full-grid residuals.
+
+The setup separates three questions that are easy to conflate. First, can a
+neural model predict a high-frequency field from a low-frequency field?
+Second, does the predicted field have a small residual under the
+high-frequency operator? Third, does the resulting initial state or learned
+correction reduce FGMRES work? The Results chapter answers these questions by
+reporting field errors, true residuals, preconditioned residuals, modal/PML
+diagnostics, and finite-budget FGMRES behaviour.
+
+% ============================================================
+% Recommended visual plan for this chapter
+% ============================================================
+%
+% Essential figures:
+% 1. figures/ch6/discrete_systems_overview.png
+%    Three panels: 1D Dirichlet, 1D PML, 2D FD/PML.
+%    Purpose: show why the experiments form a ladder from exact diagnostics
+%    to full solver-facing evaluation.
+%
+% 2. figures/ch6/model_and_data_pipeline.png
+%    Source -> low/high solves -> real/imag channels -> U-Net -> residual
+%    evaluation.
+%    Purpose: show that the model is trained as a field predictor but judged
+%    by the operator residual.
+%
+% 3. figures/ch6/residual_norms_schematic.png
+%    True residual versus preconditioned residual, with left/right
+%    preconditioning indicated.
+%    Purpose: prepare the reader for the left/right comparison in the Results
+%    chapter.
+%
+% Optional figure:
+% 4. figures/ch6/metric_dashboard_example.png
+%    One representative sample with field error, true residual,
+%    preconditioned residual, and early FGMRES curve.
+%    Purpose: improve readability by making the metric hierarchy concrete.

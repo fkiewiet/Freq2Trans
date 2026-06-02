@@ -1,0 +1,38 @@
+{
+  "16": {
+    "sigma_adapt": 42.4875,
+    "sigma_max_const": 32469.049014301723,
+    "sigma_min_const": 36.83184980105934,
+    "sigma_max_adapt": 32472.99892712433,
+    "sigma_min_adapt": 41.803127752112374,
+    "kappa_const": 881.5481489438487,
+    "kappa_adapt": 776.8078771446335
+  },
+  "32": {
+    "sigma_adapt": 68.7347,
+    "sigma_max_const": 31705.021801902898,
+    "sigma_min_const": 99.64880962874285,
+    "sigma_max_adapt": 31706.29980817016,
+    "sigma_min_adapt": 98.21985583387725,
+    "kappa_const": 318.167591966476,
+    "kappa_adapt": 322.80947206638297
+  },
+  "64": {
+    "sigma_adapt": 111.1964,
+    "sigma_max_const": 28637.40867056103,
+    "sigma_min_const": 190.95881708279657,
+    "sigma_max_adapt": 28635.722624536094,
+    "sigma_min_adapt": 195.41501826113537,
+    "kappa_const": 149.96641217223464,
+    "kappa_adapt": 146.53798300328097
+  },
+  "128": {
+    "sigma_adapt": 179.8894,
+    "sigma_max_const": 16365.25241741368,
+    "sigma_min_const": 12.181118010379762,
+    "sigma_max_adapt": 16366.732155079872,
+    "sigma_min_adapt": 13.55575593565087,
+    "kappa_const": 1343.4934628716787,
+    "kappa_adapt": 1207.3640328708111
+  }
+}

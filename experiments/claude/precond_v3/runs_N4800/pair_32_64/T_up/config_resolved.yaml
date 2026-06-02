@@ -1,0 +1,26 @@
+pair:
+- 32
+- 64
+pair_idx: 1
+outdir: experiments/claude/precond_v3/runs_N4800
+datasets:
+  up_dir: experiments/claude/datasets/up_N4800_seed42
+  down_dir: experiments/claude/datasets/down_N4800_seed42
+split:
+  n_train: 3500
+  n_val: 650
+  n_test: 650
+  seed: 42
+model:
+  base_ch: 32
+  levels: 4
+training:
+  epochs: 500
+  batch_size: 4
+  lr: 0.0003
+  weight_decay: 0.0001
+  lr_patience: 20
+  lr_factor: 0.5
+  lr_threshold: 0.0001
+  early_stop_patience: 60
+  num_workers: 4

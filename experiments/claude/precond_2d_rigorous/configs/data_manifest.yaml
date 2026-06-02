@@ -1,0 +1,79 @@
+# Canonical data manifest for the rigorous 2D follow-up.
+
+grid:
+  n: 512
+  npml: 112
+  interior_n: 288
+  dx: 0.003484320557491289 # 1 / (288 - 1)
+
+frequency_pairs:
+  up:
+    - tag: "16_32"
+      pair_idx: 0
+      omega_low: 16
+      omega_high: 32
+    - tag: "32_64"
+      pair_idx: 1
+      omega_low: 32
+      omega_high: 64
+    - tag: "64_128"
+      pair_idx: 2
+      omega_low: 64
+      omega_high: 128
+  down:
+    - tag: "32_16"
+      pair_idx: 0
+      omega_low: 32
+      omega_high: 16
+    - tag: "64_32"
+      pair_idx: 1
+      omega_low: 64
+      omega_high: 32
+    - tag: "128_64"
+      pair_idx: 2
+      omega_low: 128
+      omega_high: 64
+
+datasets:
+  # Use repaired up data for any new up-direction claims.
+  up:
+    name: up_N9600_seed42_repaired
+    expected_arrays:
+      - u_low_re.npy
+      - u_low_im.npy
+      - u_high_re.npy
+      - u_high_im.npy
+      - rms.npy
+      - omega_low.npy
+      - source_re.npy
+    candidate_roots:
+      - /orcd/pool/006/fkiewiet/freq2transfer/datasets_N9600
+      - /tmp/fkiewiet/datasets_N9600
+      - experiments/claude/datasets
+      - experiments/claude/datasets_persistent
+  down:
+    name: down_N9600_seed42
+    expected_arrays:
+      - u_low_re.npy
+      - u_low_im.npy
+      - u_high_re.npy
+      - u_high_im.npy
+      - rms.npy
+      - omega_low.npy
+      - source_re.npy
+    candidate_roots:
+      - /orcd/pool/006/fkiewiet/freq2transfer/datasets_N9600
+      - /tmp/fkiewiet/datasets_N9600
+      - experiments/claude/datasets
+      - experiments/claude/datasets_persistent
+
+audit:
+  zero_abs_tol: 1.0e-12
+  tiny_rms_tol: 1.0e-8
+  sample_stride: 1
+  max_bad_indices_to_record: 50
+
+notes:
+  exact_residual_available: false
+  source_caveat: source_re.npy is real-only in the old dataset format; regenerate data with source_im.npy for exact residual loss.
+

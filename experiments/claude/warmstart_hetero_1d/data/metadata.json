@@ -1,0 +1,23 @@
+{
+  "omega_base": 16.0,
+  "c_L": [
+    16.0,
+    24.0
+  ],
+  "c_H": [
+    32.0,
+    48.0
+  ],
+  "n": 512,
+  "n_train": 50000,
+  "n_val": 5000,
+  "n_src_min": 3,
+  "n_src_max": 6,
+  "seed": 42,
+  "arrays": [
+    "u_L [n,2]",
+    "u_H [n,2]",
+    "f [n,2]"
+  ],
+  "task": "warmstart: map (u_L, f) -> u_H (low-freq solution + RHS -> high-freq solution)"
+}

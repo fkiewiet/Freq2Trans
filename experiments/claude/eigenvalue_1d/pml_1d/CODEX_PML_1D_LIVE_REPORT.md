@@ -141,6 +141,15 @@ will:
 3. train the same scaled full-domain G6 model only if the gatekeeper passes;
 4. evaluate three seeds with explicit final true residuals.
 
+## Planned left-residual metric sensitivity
+
+PyAMG FGMRES uses the learned map as a flexible **right** preconditioner and
+stops on the true residual. An additive evaluation will trace those same
+right-FGMRES iterates and report the first one satisfying
+`||M_k^{-1}(b-Ax_k)|| / ||M_0^{-1}b|| <= 1e-6`, together with its true residual.
+For the learned nonlinear map this is called an instantaneous left-residual
+proxy, not a replacement left-FGMRES solve. No retraining is needed.
+
 ## Useful commands
 
 ```bash

@@ -35,6 +35,14 @@ echo "Output  : $OUT_DIR"
 echo "gamma   : $GAMMA"
 echo "============================================================"
 
+RESUME=()
+if [ -f "$OUT_DIR/checkpoint_latest.pt" ]; then
+  echo "Found checkpoint_latest.pt: resuming interrupted training."
+  RESUME=(--resume)
+else
+  echo "No checkpoint found: starting fresh."
+fi
+
 python train_pml.py \
   --config "$SCRATCH/pml_config.json" \
   --data_dir "$SCRATCH/data_pml" \
@@ -43,6 +51,7 @@ python train_pml.py \
   --lr 3e-4 --min_lr 1e-6 \
   --target_gain "$GAMMA" --loss_domain full \
   --grad_clip 0 --weight_decay 0 \
-  --ckpt_every 100
+  --ckpt_every 100 \
+  "${RESUME[@]}"
 
 echo "Done: $(date)"

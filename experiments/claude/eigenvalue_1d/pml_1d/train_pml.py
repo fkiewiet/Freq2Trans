@@ -95,7 +95,7 @@ class PmlDataset(Dataset):
     Interior masking is applied by the loss function, not here.
     """
 
-    def __init__(self, npz_path: str, in_ch: int) -> None:
+    def __init__(self, npz_path: str, in_ch: int, target_gain: float = 1.0) -> None:
         data = np.load(npz_path)
         M    = data["r"].shape[0]
         print(f"  Loading {M:,} pairs from {Path(npz_path).name}...", end=" ", flush=True)
@@ -111,7 +111,11 @@ class PmlDataset(Dataset):
 
         s  = np.linalg.norm(r2, axis=1, keepdims=True).clip(min=1e-30)
         x_r2 = np.stack([r2.real / s, r2.imag / s], axis=1).astype(np.float32)  # [M, 2, N]
-        y    = np.stack([corr.real / s, corr.imag / s], axis=1).astype(np.float32)
+        # A PML correction is about 2.8e-3 of the post-CSL residual norm.
+        # Predicting corr/(s*target_gain) makes the target order one while the
+        # deployed correction remains exactly corr = target_gain*s*y_hat.
+        y    = np.stack([corr.real / (s * target_gain),
+                         corr.imag / (s * target_gain)], axis=1).astype(np.float32)
 
         if in_ch == 4:
             if "uL" not in data:
@@ -164,11 +168,15 @@ def train(args: argparse.Namespace, pml_cfg: dict) -> None:
     print(f"  data_dir : {args.data_dir}")
     print(f"  out_dir  : {args.out_dir}")
     print(f"  epochs={args.epochs}  lr={args.lr}→{args.min_lr}  device={args.device}")
+    print(f"  target_gain={args.target_gain}  loss_domain={args.loss_domain} "
+          f"grad_clip={args.grad_clip}  weight_decay={args.weight_decay}")
     print(f"{'='*60}\n")
 
     # Data
-    tr_ds  = PmlDataset(os.path.join(args.data_dir, "train.npz"), in_ch=args.in_ch)
-    val_ds = PmlDataset(os.path.join(args.data_dir, "val.npz"),   in_ch=args.in_ch)
+    tr_ds  = PmlDataset(os.path.join(args.data_dir, "train.npz"), in_ch=args.in_ch,
+                        target_gain=args.target_gain)
+    val_ds = PmlDataset(os.path.join(args.data_dir, "val.npz"),   in_ch=args.in_ch,
+                        target_gain=args.target_gain)
     tr_dl  = DataLoader(tr_ds,  batch_size=args.batch, shuffle=True,  num_workers=4, pin_memory=True)
     val_dl = DataLoader(val_ds, batch_size=args.batch, shuffle=False, num_workers=2, pin_memory=True)
 
@@ -177,7 +185,7 @@ def train(args: argparse.Namespace, pml_cfg: dict) -> None:
     n_par  = sum(p.numel() for p in model.parameters())
     print(f"Model: DilatedCNN1d  in_ch={args.in_ch}  width={args.width}  params={n_par:,}\n")
 
-    opt   = optim.AdamW(model.parameters(), lr=args.lr, weight_decay=1e-4)
+    opt   = optim.AdamW(model.parameters(), lr=args.lr, weight_decay=args.weight_decay)
     sched = optim.lr_scheduler.CosineAnnealingLR(opt, T_max=args.epochs, eta_min=args.min_lr)
 
     # ── Resume / warm-start ───────────────────────────────────────────────────
@@ -207,7 +215,7 @@ def train(args: argparse.Namespace, pml_cfg: dict) -> None:
         print(f"Training already complete (epoch {start_epoch-1}/{args.epochs}). Exiting.")
         return
 
-    int_sl = _INT_SL
+    int_sl = _INT_SL if args.loss_domain == "interior" else slice(None)
 
     # ── Epoch loop ────────────────────────────────────────────────────────────
     for epoch in range(start_epoch, args.epochs + 1):
@@ -219,7 +227,8 @@ def train(args: argparse.Namespace, pml_cfg: dict) -> None:
             opt.zero_grad()
             loss = interior_rel_l2(model(xb), yb, int_sl)
             loss.backward()
-            nn.utils.clip_grad_norm_(model.parameters(), 1.0)
+            if args.grad_clip > 0:
+                nn.utils.clip_grad_norm_(model.parameters(), args.grad_clip)
             opt.step()
             tr_loss += loss.item() * len(xb)
         tr_loss /= len(tr_ds)
@@ -241,6 +250,8 @@ def train(args: argparse.Namespace, pml_cfg: dict) -> None:
             "val":         val_loss,
             "in_ch":       args.in_ch,
             "width":       args.width,
+            "target_gain": args.target_gain,
+            "loss_domain": args.loss_domain,
             "model_state": model.state_dict(),
         }
         if val_loss < best_val:
@@ -292,6 +303,13 @@ def main() -> None:
     p.add_argument("--batch",      type=int,   default=128)
     p.add_argument("--lr",         type=float, default=3e-4)
     p.add_argument("--min_lr",     type=float, default=1e-6)
+    p.add_argument("--target_gain", type=float, default=1.0,
+                   help="Scale used in y=corr/(target_gain*||r2||).")
+    p.add_argument("--loss_domain", choices=["interior", "full"], default="interior",
+                   help="Apply relative correction loss on the physical interior or full PML grid.")
+    p.add_argument("--grad_clip", type=float, default=1.0,
+                   help="Positive maximum gradient norm; 0 disables clipping.")
+    p.add_argument("--weight_decay", type=float, default=1e-4)
     p.add_argument("--ckpt_every", type=int,   default=100,
                    help="Save checkpoint_latest.pt every N epochs (for SLURM resume)")
     p.add_argument("--device",     type=str,

@@ -48,27 +48,28 @@ MAXITER = 20
 
 # ── FGMRES runner ─────────────────────────────────────────────────────────────
 
-def run_fgmres(A_H, f, M_op, n: int) -> tuple[int, float]:
+def run_fgmres(A_H, f, M_op, n: int) -> tuple[int, float, float]:
     """
     Run FGMRES with preconditioner M_op.
-    Returns (n_iters, wall_ms).
+    Returns (n_iters, wall_ms, final_true_relative_residual).
     Iteration count of 1000 signals non-convergence.
     """
     res = []
     t0  = time.perf_counter()
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
-        fgmres(A_H, f, x0=np.zeros(n, dtype=complex),
-               tol=TOL, restart=RESTRT, maxiter=MAXITER,
-               M=M_op, residuals=res)
+        x, _ = fgmres(A_H, f, x0=np.zeros(n, dtype=complex),
+                      tol=TOL, restart=RESTRT, maxiter=MAXITER,
+                      M=M_op, residuals=res)
     ms    = (time.perf_counter() - t0) * 1e3
     iters = max(0, len(res) - 1)
     if iters >= MAXITER * RESTRT:
         iters = 1000  # non-convergence flag
-    return iters, ms
+    true_rel = float(np.linalg.norm(f - A_H @ x) / max(np.linalg.norm(f), 1e-30))
+    return iters, ms, true_rel
 
 
-def summarise(name: str, counts: list[int], timings: list[float]) -> dict:
+def summarise(name: str, counts: list[int], timings: list[float], true_residuals: list[float]) -> dict:
     c = np.array(counts)
     t = np.array(timings)
     conv  = int((c < 1000).sum())
@@ -76,10 +77,14 @@ def summarise(name: str, counts: list[int], timings: list[float]) -> dict:
     dist  = {int(v): int(n) for v, n in zip(vals, cnts)}
     med   = float(np.median(c))
     ms    = float(np.median(t))
+    true = np.asarray(true_residuals)
     print(f"  {name:<32}  median={med:5.1f}  conv={conv:>3}/200  "
+          f"true-med={np.median(true):.2e} true-max={np.max(true):.2e}  "
           f"dist={dict(list(dist.items())[:8])}  {ms:.1f}ms/problem")
     return {"median": med, "n_converged": conv, "distribution": dist,
-            "timing_ms": ms, "counts": c.tolist()}
+            "timing_ms": ms, "counts": c.tolist(),
+            "true_residual_median": float(np.median(true)),
+            "true_residual_max": float(np.max(true)), "true_residuals": true.tolist()}
 
 
 # ── Main ──────────────────────────────────────────────────────────────────────
@@ -109,11 +114,13 @@ def main(args) -> dict:
     ckpt   = torch.load(args.ckpt, map_location=device)
     in_ch  = ckpt.get("in_ch", 2)
     width  = ckpt.get("width", 64)
+    target_gain = float(ckpt.get("target_gain", 1.0))
     model  = DilatedCNN1d(in_ch=in_ch, out_ch=2, width=width).to(device).eval()
     model.load_state_dict(ckpt["model_state"])
     mode   = "G6-style" if in_ch == 2 else "u_L conditioning"
     print(f"Model: {mode}  in_ch={in_ch}  width={width}")
-    print(f"  ep={ckpt.get('epoch','?')}  val(interior)={ckpt.get('val', 0):.4f}\n")
+    print(f"  ep={ckpt.get('epoch','?')}  val={ckpt.get('val', 0):.4f} "
+          f"target_gain={target_gain:.3e} loss_domain={ckpt.get('loss_domain', 'interior')}\n")
 
     rng = np.random.default_rng(args.seed)
 
@@ -137,13 +144,13 @@ def main(args) -> dict:
                              uL.real/sL, uL.imag/sL])[None].astype(np.float32)  # [1, 4, N]
         with torch.no_grad():
             y = model(torch.from_numpy(x).to(device))[0].cpu().numpy()
-        return z0 + (y[0] + 1j * y[1]) * s
+        return z0 + (y[0] + 1j * y[1]) * s * target_gain
 
     M_csl = spla.LinearOperator((n, n), matvec=M_csl_fn, dtype=complex)
     M_nn  = spla.LinearOperator((n, n), matvec=M_nn_fn,  dtype=complex)
 
-    counts_csl, times_csl = [], []
-    counts_nn,  times_nn  = [], []
+    counts_csl, times_csl, true_csl = [], [], []
+    counts_nn,  times_nn,  true_nn  = [], [], []
     _current_uL = np.zeros(n, dtype=complex)  # filled per-problem for in_ch=4
 
     # Need A_L factored for u_L conditioning
@@ -160,10 +167,10 @@ def main(args) -> dict:
         if in_ch == 4:
             _current_uL = LU_L.solve(f)
 
-        it_csl, ms_csl = run_fgmres(A_H, f, M_csl, n)
-        it_nn,  ms_nn  = run_fgmres(A_H, f, M_nn,  n)
-        counts_csl.append(it_csl); times_csl.append(ms_csl)
-        counts_nn.append(it_nn);   times_nn.append(ms_nn)
+        it_csl, ms_csl, tr_csl = run_fgmres(A_H, f, M_csl, n)
+        it_nn,  ms_nn,  tr_nn  = run_fgmres(A_H, f, M_nn,  n)
+        counts_csl.append(it_csl); times_csl.append(ms_csl); true_csl.append(tr_csl)
+        counts_nn.append(it_nn);   times_nn.append(ms_nn);   true_nn.append(tr_nn)
 
         if (prob_i + 1) % 50 == 0:
             print(f"  {prob_i+1}/{N_PROB}", flush=True)
@@ -175,8 +182,8 @@ def main(args) -> dict:
         "in_ch":    in_ch,
         "omega_H":  omega_H,
         "beta":     beta,
-        "csl_only": summarise("CSL-only",       counts_csl, times_csl),
-        "nn":        summarise(f"NN ({mode})",   counts_nn,  times_nn),
+        "csl_only": summarise("CSL-only",       counts_csl, times_csl, true_csl),
+        "nn":        summarise(f"NN ({mode})",   counts_nn,  times_nn, true_nn),
     }
 
     if args.out:

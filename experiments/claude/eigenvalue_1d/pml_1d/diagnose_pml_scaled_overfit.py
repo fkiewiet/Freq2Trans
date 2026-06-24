@@ -93,7 +93,7 @@ def effective_rank(corr: np.ndarray) -> dict:
     unit = corr / row_norm(corr)[:, None].clip(min=1e-30)
     x = np.concatenate((unit.real, unit.imag), axis=1)
     singular = np.linalg.svd(x, full_matrices=False, compute_uv=False)
-    energy = singular.square() / singular.square().sum()
+    energy = np.square(singular) / np.square(singular).sum()
     cumulative = np.cumsum(energy)
     result = {
         "n_vectors": int(len(corr)),

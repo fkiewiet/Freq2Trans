@@ -281,7 +281,7 @@ def train(args: argparse.Namespace, pml_cfg: dict) -> None:
     with open(os.path.join(args.out_dir, "history.json"), "w") as fh:
         json.dump(history, fh, indent=2)
 
-    print(f"\nDone.  Best interior val: {best_val:.4f}")
+    print(f"\nDone.  Best selected validation loss: {best_val:.4f}")
     print(f"Best checkpoint : {best_path}")
     print(f"Latest checkpoint: {latest_path}")
 

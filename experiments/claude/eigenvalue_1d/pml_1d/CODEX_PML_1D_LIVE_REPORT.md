@@ -129,6 +129,18 @@ The scaled/full-domain run is worth keeping only if all of the following hold:
 | Full-data loss returns to about 1 | Diagnose generalisation and residual-pair diversity before changing architecture. |
 | True residuals disagree with solver history | Treat the iteration result as invalid and repair evaluation first. |
 
+## Planned beta=0.3 sensitivity run
+
+The beta sweep selected `beta=0.2` for the original 1D PML baseline. A separate
+`beta=0.3` branch is being prepared for comparison with the 2D thesis setting.
+It must not reuse beta=0.2 data, scaling, or checkpoints. The dependency chain
+will:
+
+1. validate a fixed `beta=0.3` baseline and regenerate FGMRES residual data;
+2. recompute the scaled-target gatekeeper and its own `gamma`;
+3. train the same scaled full-domain G6 model only if the gatekeeper passes;
+4. evaluate three seeds with explicit final true residuals.
+
 ## Useful commands
 
 ```bash

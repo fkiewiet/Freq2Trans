@@ -507,25 +507,39 @@ The current priority order is therefore:
 
 | Priority | Action | Why |
 |---:|---|---|
-| 1 | Finish the actual flexible left-action check at `omega_H=32`, seed `2025`. | This is the solver-formulation gate. |
-| 2 | If seed `2025` is good, run remaining `omega_H=32` seeds as one-seed CPU jobs. | Builds a clean advisor-facing three-seed table without wasting wall time. |
-| 3 | Run actual-left checks for `omega_H=64`, starting with `pmlfeat`. | `pmlfeat` is the best high-frequency left-metric variant so far. |
-| 4 | Add iteration-indexed residual metadata to the next dataset format. | Enables early/late residual analysis and later on-policy data collection. |
-| 5 | Compare adjacent-frequency correction geometry and simple transfer baselines. | Establishes whether transfer is plausible before training `T_down/T_up`. |
-| 6 | Only then consider `omega_H=128`. | Avoids sprinting into a harder case before the solver story is clean. |
+| 1 | Track the Kees-aligned left-action training branch, jobs `16578514`--`16578517`. | This directly tests whether the actual-left failure was a training-distribution mismatch. |
+| 2 | If the left-action-trained seed `2025` smoke test is good, run the remaining `omega_H=32` seeds as one-seed CPU jobs. | Builds a clean advisor-facing three-seed table without wasting wall time. |
+| 3 | If left-action training still fails, pivot toward fixed/linear transfer operators before more nonlinear left-preconditioner experiments. | A second failure would suggest a structural Arnoldi/nonlinear-preconditioner issue rather than only off-distribution inputs. |
+| 4 | Run actual-left checks for `omega_H=64`, starting with `pmlfeat`, only after the `omega_H=32` formulation is understood. | `pmlfeat` is the best high-frequency left-metric variant so far, but the solver formulation should be settled first. |
+| 5 | Add iteration-indexed residual metadata to the next dataset format. | Enables early/late residual analysis and later on-policy data collection. |
+| 6 | Compare adjacent-frequency correction geometry and simple transfer baselines. | Establishes whether transfer is plausible before training `T_down/T_up`. |
+| 7 | Only then consider `omega_H=128`. | Avoids sprinting into a harder case before the solver story is clean. |
 
 The short version: **post-CSL residual correction first, actual-left validation
 second, frequency-transfer machinery third**.
 
 ### Kees-aligned left-action training branch
 
-The actual-left smoke test exposed a likely distribution/formulation mismatch:
-the existing neural map was trained on residuals passed to the right/flexible
+The actual-left smoke test exposed a likely distribution/formulation mismatch.
+The existing neural map was trained on residuals passed to the right/flexible
 preconditioner, but the Saad-style left Arnoldi step applies the map to
 
 ```text
 y = A_H v_j.
 ```
+
+For the inspected seed-2025 CPU smoke test with the existing right-trained
+`pmlfeat` checkpoint, CSL-only remained usable under the actual-left metric,
+but the learned nonlinear map did not:
+
+| Model | Left-stop result | True-residual safety | Interpretation |
+|---|---|---|---|
+| CSL-only | left median `9`, 50/50 left convergence | true convergence only 7/50 at the left stop; true residuals around a few `1e-6` | Baseline left-preconditioned solve is imperfect under true-residual safety, but the left metric behaves sensibly. |
+| right-trained `pmlfeat` | left median hit sentinel `1000`; only 3/50 left convergence | 0/50 true convergence; true residual around `1e-4` | Reusing the right-trained checkpoint inside left Arnoldi fails. |
+
+This does **not** invalidate the right-FGMRES result. It says the learned map
+was successful on the distribution it was trained and deployed on, but not as
+a drop-in nonlinear left-Arnoldi operator.
 
 So the correct next training experiment is not "reuse the right-preconditioner
 checkpoint inside left Arnoldi." It is:
@@ -560,6 +574,25 @@ smoke test:
 
 ```bash
 bash sbatch/launch_left_action_training_beta0p3.sh
+```
+
+This branch has now been launched from `login007`:
+
+| Job | Stage | Purpose |
+|---:|---|---|
+| `16578514` | left-action data generation | Generate `r=y_j=A_Hv_j`, exact `eh=A_H^{-1}y_j`, and metadata from CSL-left Arnoldi vectors. |
+| `16578515` | scaled-target gate | Recompute the left-action target scale `gamma` and check small-overfit learnability. |
+| `16578516` | `pmlfeat` training | Train the left-action `pmlfeat` model, warm-started from the right-FGMRES `pmlfeat` checkpoint. |
+| `16578517` | seed-2025 actual-left smoke test | Evaluate whether the left-action-trained model repairs the actual-left failure. |
+
+Monitor with:
+
+```bash
+squeue -j 16578514,16578515,16578516,16578517 \
+  -o "%.18i %.28j %.10T %.10M %.10l %.30R"
+
+sacct -X -j 16578514,16578515,16578516,16578517 \
+  --format=JobID,JobName%30,State,ExitCode,Elapsed,Start,End
 ```
 
 Interpretation rule:

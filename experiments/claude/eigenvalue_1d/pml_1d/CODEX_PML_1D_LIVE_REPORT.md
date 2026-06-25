@@ -220,6 +220,147 @@ better left-metric agreement, or reduced variance. If all three variants match
 the baseline, the current G6 input representation is probably already close to
 the useful limit for this 1D PML setting.
 
+### Ordinary true-residual evaluation: `pmlfeat`
+
+`pmlfeat` adds static PML/location features to the post-CSL residual input:
+`sigma(x)`, a PML mask, and a signed coordinate. It trained to validation loss
+about `0.0005` with `target_gain=2.784e-03`.
+
+| Seed | CSL median | `pmlfeat` median | Convergence | Iteration distribution |
+|---:|---:|---:|---|---|
+| 2025 | 10 | 4 | both 200/200 | CSL `{9:70, 10:130}`; `pmlfeat` `{3:1, 4:199}` |
+| 1111 | 10 | 4 | both 200/200 | CSL `{9:83, 10:117}`; `pmlfeat` `{3:1, 4:199}` |
+| 3333 | 10 | 4 | both 200/200 | CSL `{9:85, 10:115}`; `pmlfeat` `{3:2, 4:198}` |
+
+Final true residuals remained below `1e-6`. Runtime was about `3.6 ms/problem`,
+compared with about `1.3 ms/problem` for CSL-only.
+
+Compared with the plain scaled full-domain G6 baseline, `pmlfeat` does not
+change the median, but it slightly improves the distribution. Across 600 test
+problems, the plain G6 baseline had 598 four-iteration solves, 2 five-iteration
+solves, and no three-iteration solves. `pmlfeat` had 596 four-iteration solves,
+4 three-iteration solves, and no five-iteration solves.
+
+Interpretation: explicit PML/location information is useful, but
+secondary. The post-CSL residual `r2` already carries most of the information
+needed for the correction.
+
+### Ordinary true-residual evaluation: `pml_ul`
+
+`pml_ul` adds both the PML/location features and the low-frequency solve `u_L`.
+It also trained to validation loss about `0.0005`.
+
+| Seed | CSL median | `pml_ul` median | Convergence | Iteration distribution |
+|---:|---:|---:|---|---|
+| 2025 | 10 | 4 | both 200/200 | CSL `{9:70, 10:130}`; `pml_ul` `{4:199, 5:1}` |
+| 1111 | 10 | 4 | both 200/200 | CSL `{9:83, 10:117}`; `pml_ul` `{4:199, 5:1}` |
+| 3333 | 10 | 4 | both 200/200 | CSL `{9:85, 10:115}`; `pml_ul` `{4:195, 5:5}` |
+
+Final true residuals remained below `1e-6`. Runtime was about `3.3 ms/problem`.
+
+Interpretation: adding `u_L` does not improve this 1D PML post-CSL
+preconditioner. It preserves the median improvement over CSL, but it has a
+worse iteration tail than both plain G6 and `pmlfeat`.
+
+### Ordinary true-residual evaluation: `pml_f`
+
+`pml_f` adds the PML/location features and the source term `f`. It trained to
+validation loss about `0.0005`.
+
+| Seed | CSL median | `pml_f` median | Convergence | Iteration distribution |
+|---:|---:|---:|---|---|
+| 2025 | 10 | 4 | both 200/200 | CSL `{9:70, 10:130}`; `pml_f` `{4:200}` |
+| 1111 | 10 | 4 | both 200/200 | CSL `{9:83, 10:117}`; `pml_f` `{4:200}` |
+| 3333 | 10 | 4 | both 200/200 | CSL `{9:85, 10:115}`; `pml_f` `{4:200}` |
+
+Final true residuals remained below `1e-6`. Runtime was about `3.4 ms/problem`.
+
+Interpretation: source conditioning is robust but does not improve the
+iteration count beyond the plain G6 baseline. It removes the occasional
+five-iteration tail from plain G6, but unlike `pmlfeat` it does not create any
+three-iteration solves.
+
+### Left-metric sensitivity for architecture portfolio
+
+All three architecture variants were also checked with the instantaneous
+left-preconditioned-residual proxy along the same right-FGMRES trajectory. The
+left-metric stopping medians match the ordinary true-residual medians.
+
+| Variant | Seed | CSL left median | learned left median | true median | true residual at left stop |
+|---|---:|---:|---:|---:|---|
+| `pmlfeat` | 2025 | 10 | 4 | 4 | median `1.95e-7`, max `6.22e-6` |
+| `pmlfeat` | 1111 | 10 | 4 | 4 | median `2.07e-7`, max `3.66e-6` |
+| `pmlfeat` | 3333 | 10 | 4 | 4 | median `2.07e-7`, max `4.32e-6` |
+| `pml_ul` | 2025 | 10 | 4 | 4 | median `2.53e-7`, max `6.45e-6` |
+| `pml_ul` | 1111 | 10 | 4 | 4 | median `2.93e-7`, max `5.26e-6` |
+| `pml_ul` | 3333 | 10 | 4 | 4 | median `2.44e-7`, max `6.48e-6` |
+| `pml_f` | 2025 | 10 | 4 | 4 | median `2.04e-7`, max `3.86e-6` |
+| `pml_f` | 1111 | 10 | 4 | 4 | median `2.14e-7`, max `4.14e-6` |
+| `pml_f` | 3333 | 10 | 4 | 4 | median `1.95e-7`, max `3.53e-6` |
+
+This supports the same qualitative conclusion as the ordinary evaluation:
+every learned architecture gives a stable 10-to-4 iteration reduction under the
+left-metric sensitivity, and the differences between variants are distributional
+rather than median-changing. The true residual at the left-metric stopping point
+can exceed `1e-6` in the maximum case, so the true residual remains the primary
+criterion and the left metric remains a sensitivity check.
+
+### Final architecture ranking at beta=0.3
+
+| Model | Median | Distribution summary over 600 solves | Interpretation |
+|---|---:|---|---|
+| CSL-only | 10 | mostly 9--10 iterations | Baseline solver. |
+| plain scaled full-domain G6 | 4 | 598 at 4, 2 at 5 | Best simplicity/runtime tradeoff. |
+| `pmlfeat` | 4 | 4 at 3, 596 at 4 | Best iteration distribution so far. |
+| `pml_f` | 4 | 600 at 4 | Robust, but no 3-iteration tail. |
+| `pml_ul` | 4 | 593 at 4, 7 at 5 | Works, but not better than plain G6. |
+
+The ordinary true-residual evaluation supports keeping two beta=0.3 reference
+models: plain G6 as the clean/simple baseline, and `pmlfeat` as the best
+distributional variant so far. `pml_f` is a robust source-conditioned variant,
+but it does not improve over `pmlfeat`. The left-metric checks agree with the
+ordinary evaluation at the median level for all variants.
+
+## Next PML direction: frequency generalisation
+
+Architecture search at `omega_H=32`, `beta=0.3` is now closed unless a new
+failure mode appears. The next question is whether the same scaled/full-domain
+post-CSL recipe works across frequency.
+
+The recommended next table is:
+
+| High frequency | Low frequency | Models to test | Reason |
+|---:|---:|---|---|
+| 16 | 8 | plain G6, `pmlfeat` | Low-frequency sanity check; CSL may already be strong. |
+| 64 | 32 | plain G6, `pmlfeat` | Most informative next harder case. |
+| 128 | 64 | plain G6, `pmlfeat` | Stress test. |
+
+Keep fixed:
+
+```text
+beta = 0.3
+loss = scaled full-domain post-CSL correction loss
+training data = logged CSL-preconditioned FGMRES residual calls
+primary evaluation = true residual
+sensitivity evaluation = instantaneous left-preconditioned-residual proxy
+```
+
+Do not carry `pml_ul` or `pml_f` into the frequency sweep unless a later result
+specifically motivates them. `pml_ul` did not help, and `pml_f` was robust but
+not better than `pmlfeat`.
+
+Strategic sequence:
+
+1. Run `omega_L=8 -> omega_H=16` first as a cheap sanity check.
+2. If the pipeline works, run `32 -> 64` and then `64 -> 128`.
+3. Only after separate per-frequency models work should we test actual
+   frequency transfer, such as weight-initialising `omega=64` from the
+   `omega=32` model or training one omega-conditioned model across frequencies.
+
+The frequency-transfer question is valuable, but it should come after the
+per-frequency table. First establish whether the method generalises; then test
+whether the learned correction itself transfers.
+
 ## Useful commands
 
 ```bash

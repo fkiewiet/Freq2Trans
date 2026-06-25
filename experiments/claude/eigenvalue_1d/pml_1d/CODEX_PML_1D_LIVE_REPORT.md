@@ -462,6 +462,28 @@ true residual as the safety metric. For CSL-only this is standard
 left-preconditioned GMRES; for the learned map it should be described as a
 nonlinear/flexible left-action GMRES check.
 
+Queue/capacity note: if the actual-left GPU jobs wait with
+`QOSMaxGRESPerUser`, use the CPU-only launchers to make progress without asking
+for another GPU:
+
+```bash
+# quick smoke test
+N_PROBLEMS=20 bash sbatch/launch_actual_left_beta0p3_cpu.sh
+
+# full beta=0.3 omega_H=32 actual-left CPU check
+bash sbatch/launch_actual_left_beta0p3_cpu.sh
+```
+
+Once the `omega_H=64` checkpoints exist, run the same actual-left solver
+formulation for the frequency table:
+
+```bash
+bash sbatch/launch_actual_left_freq_pair_cpu.sh 8 16
+bash sbatch/launch_actual_left_freq_pair_cpu.sh 32 64
+```
+
+Summarise completed actual-left outputs with `summarise_actual_left.py`.
+
 ## Next PML direction: frequency generalisation
 
 Architecture search at `omega_H=32`, `beta=0.3` is now closed unless a new

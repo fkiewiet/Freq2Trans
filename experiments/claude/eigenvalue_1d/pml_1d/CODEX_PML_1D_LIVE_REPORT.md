@@ -394,6 +394,76 @@ iteration reduction in absolute terms: CSL around `8--9` iterations to learned
 G6 around `3--4`. At this frequency, plain G6 is better than `pmlfeat`; the
 extra PML/location channels do not help and slightly worsen the distribution.
 
+## Frequency-generalisation result: `omega_L=32 -> omega_H=64`
+
+The harder `omega_H=64` frequency-generalisation run is complete for the
+right-FGMRES and instantaneous left-metric pipeline.
+
+| Job | Result |
+|---|---|
+| `16573326` | Data/config completed. |
+| `16573327` | Gate completed. |
+| `16573328` | Plain G6 training completed in `1:03:56`; best validation loss about `0.0004`. |
+| `16573329` | Plain G6 ordinary true-residual evaluation completed. |
+| `16573330` | Plain G6 left-metric sensitivity completed. |
+| `16573331` | `pmlfeat` training completed in `1:02:59`; best validation loss about `0.0004`. |
+| `16573332` | `pmlfeat` ordinary true-residual evaluation completed. |
+| `16573333` | `pmlfeat` left-metric sensitivity completed. |
+
+The selected target gain was `9.817e-04`, smaller than the `omega_H=32` value
+of about `2.784e-03`. Both models learned the scaled target cleanly, with
+validation loss around `0.0004`. This is a strong sign that the recipe survives
+the harder frequency at the representation/loss level.
+
+### Ordinary true-residual evaluation
+
+| Seed | CSL median | Plain G6 median | Plain G6 distribution | `pmlfeat` median | `pmlfeat` distribution |
+|---:|---:|---:|---|---:|---|
+| 2025 | 13.0 | 5.0 | `{5:193, 6:7}` | 5.0 | `{4:54, 5:146}` |
+| 1111 | 13.0 | 5.0 | `{5:195, 6:5}` | 5.0 | `{4:61, 5:139}` |
+| 3333 | 13.0 | 5.0 | `{5:194, 6:6}` | 5.0 | `{4:55, 5:145}` |
+
+All ordinary evaluations converged on all 200 right-hand sides per seed, and
+final true residuals remained below `1e-6`.
+
+Across 600 test problems:
+
+| Model | Distribution summary |
+|---|---|
+| CSL-only | 5 at 11 iterations, 196 at 12, 399 at 13 |
+| plain G6 | 582 at 5 iterations, 18 at 6 |
+| `pmlfeat` | 170 at 4 iterations, 430 at 5 |
+
+Runtime is still not wall-clock favourable in the current Python/NN
+implementation: CSL-only was about `1.5--1.6 ms/problem`, plain G6 about
+`3.8--3.9 ms/problem`, and `pmlfeat` about `3.9--4.0 ms/problem`.
+
+### Left-metric sensitivity
+
+The instantaneous left-preconditioned-residual proxy again supports the learned
+preconditioner, and here `pmlfeat` is clearly better than plain G6 under the
+left metric.
+
+| Variant | Seed | CSL left median | learned left median | true median | true residual at left stop |
+|---|---:|---:|---:|---:|---|
+| plain G6 | 2025 | 13.0 | 5.0 | 5.0 | median `4.65e-7`, max `3.42e-6` |
+| plain G6 | 1111 | 13.0 | 5.0 | 5.0 | median `4.53e-7`, max `1.96e-6` |
+| plain G6 | 3333 | 13.0 | 5.0 | 5.0 | median `4.55e-7`, max `4.90e-6` |
+| `pmlfeat` | 2025 | 13.0 | 4.0 | 5.0 | median `1.09e-6`, max `2.55e-6` |
+| `pmlfeat` | 1111 | 13.0 | 4.0 | 5.0 | median `1.05e-6`, max `2.41e-6` |
+| `pmlfeat` | 3333 | 13.0 | 4.0 | 5.0 | median `1.05e-6`, max `3.33e-6` |
+
+Interpretation: the post-CSL learned correction scales to `omega_H=64`.
+Ordinary right-FGMRES improves from CSL median `13` to learned median `5`.
+The PML/location features are now more valuable than at `omega_H=16`: they do
+not change the ordinary true-residual median, but they create many
+four-iteration solves and improve the left-metric median from `5` to `4`.
+
+Safety note: for `pmlfeat`, the true residual at the left-metric stopping point
+has median just above `1e-6`. This reinforces the standing rule: report the
+left-preconditioned residual as the metric sensitivity/primary left metric, but
+always include true residual as a safety check.
+
 ## High-priority next solver check: flexible left-preconditioned FGMRES
 
 The current left-residual results are **metric sensitivities along a flexible
@@ -460,7 +530,8 @@ Implementation note: the actual-left check now has a dedicated evaluator,
 `||M^{-1}(b-Ax_k)||/||M^{-1}b||` as the primary left residual, and records the
 true residual as the safety metric. For CSL-only this is standard
 left-preconditioned GMRES; for the learned map it should be described as a
-nonlinear/flexible left-action GMRES check.
+nonlinear/flexible left-action FGMRES-style check. The key metric uses left
+preconditioning in both numerator and denominator.
 
 Queue/capacity note: if the actual-left GPU jobs wait with
 `QOSMaxGRESPerUser`, use the CPU-only launchers to make progress without asking
@@ -472,6 +543,18 @@ N_PROBLEMS=20 bash sbatch/launch_actual_left_beta0p3_cpu.sh
 
 # full beta=0.3 omega_H=32 actual-left CPU check
 bash sbatch/launch_actual_left_beta0p3_cpu.sh
+```
+
+The better CPU pattern is one seed per job, because the flexible left-action
+check is slow on CPU and a three-seed job may hit the wall-time limit before
+writing all outputs:
+
+```bash
+# one seed for a quick result
+SEEDS="2025" bash sbatch/launch_actual_left_beta0p3_cpu_by_seed.sh
+
+# full three-seed table, one job per variant/seed
+bash sbatch/launch_actual_left_beta0p3_cpu_by_seed.sh
 ```
 
 Once the `omega_H=64` checkpoints exist, run the same actual-left solver

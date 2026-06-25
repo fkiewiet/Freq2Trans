@@ -464,6 +464,113 @@ has median just above `1e-6`. This reinforces the standing rule: report the
 left-preconditioned residual as the metric sensitivity/primary left metric, but
 always include true residual as a safety check.
 
+## Current strategic map
+
+The old warm-start and V-cycle plans contained useful instincts, but the
+centre of the project has shifted. The current evidence says the main object
+should not be a one-shot map from `f` or `u_L` to `u_H`. The useful object is a
+**per-iteration post-CSL defect correction**:
+
+```text
+raw vector y
+  -> CSL_H^{-1} y
+  -> post-CSL defect r2_H = y - A_H CSL_H^{-1} y
+  -> learned or transferred correction of r2_H
+  -> add correction back to CSL_H^{-1} y
+```
+
+The surviving lessons from the older plan are:
+
+1. Train on the distribution the solver actually sees. Source fields and
+   solution fields are not enough; residual/correction pairs from Krylov calls
+   are the right data.
+2. Keep CSL as the first-stage smoother/corrector. The neural or transfer part
+   should correct what CSL fails to remove, not replace CSL.
+3. If frequency transfer is tested, use an exact/direct low-frequency
+   `A_L^{-1}` first. Do not blur the transfer question by using a weak
+   low-frequency CSL solve too early.
+4. Random-vector or actual-residual training for `T_down` remains a good later
+   idea, but only after the standalone post-CSL correction has been validated
+   under the actual left-preconditioned solver formulation.
+
+The older ideas to demote are:
+
+1. Warm-start-first experiments. They can be useful baselines, but they no
+   longer drive the main story.
+2. Direct `f -> u_H` as a main branch. It may be an interesting neural-solver
+   ablation, but it is not the advisor-facing preconditioning story.
+3. Architecture-first exploration. G6 and `pmlfeat` are already strong; a U-Net
+   should be a targeted high-frequency/transfer test, not the default next
+   move.
+
+The current priority order is therefore:
+
+| Priority | Action | Why |
+|---:|---|---|
+| 1 | Finish the actual flexible left-action check at `omega_H=32`, seed `2025`. | This is the solver-formulation gate. |
+| 2 | If seed `2025` is good, run remaining `omega_H=32` seeds as one-seed CPU jobs. | Builds a clean advisor-facing three-seed table without wasting wall time. |
+| 3 | Run actual-left checks for `omega_H=64`, starting with `pmlfeat`. | `pmlfeat` is the best high-frequency left-metric variant so far. |
+| 4 | Add iteration-indexed residual metadata to the next dataset format. | Enables early/late residual analysis and later on-policy data collection. |
+| 5 | Compare adjacent-frequency correction geometry and simple transfer baselines. | Establishes whether transfer is plausible before training `T_down/T_up`. |
+| 6 | Only then consider `omega_H=128`. | Avoids sprinting into a harder case before the solver story is clean. |
+
+The short version: **post-CSL residual correction first, actual-left validation
+second, frequency-transfer machinery third**.
+
+### Kees-aligned left-action training branch
+
+The actual-left smoke test exposed a likely distribution/formulation mismatch:
+the existing neural map was trained on residuals passed to the right/flexible
+preconditioner, but the Saad-style left Arnoldi step applies the map to
+
+```text
+y = A_H v_j.
+```
+
+So the correct next training experiment is not "reuse the right-preconditioner
+checkpoint inside left Arnoldi." It is:
+
+```text
+CSL-left Arnoldi basis vector v_j
+  -> y_j = A_H v_j
+  -> z0_j = CSL_H^{-1} y_j
+  -> r2_j = y_j - A_H z0_j
+  -> train c_j = A_H^{-1} r2_j
+```
+
+This asks the clean question: if the model is trained on the vectors that the
+left Arnoldi action actually feeds it, can the learned post-CSL correction
+become a usable nonlinear/flexible left-action preconditioner?
+
+New branch files:
+
+```text
+generate_pml_left_action_data.py
+sbatch/job37_generate_left_action_beta0p3.sh
+sbatch/job38_gate_left_action_beta0p3.sh
+sbatch/job39_train_left_action_beta0p3.sh
+sbatch/job40_actual_left_left_action_beta0p3_cpu_seed.sh
+sbatch/launch_left_action_training_beta0p3.sh
+```
+
+The default launch path generates left-action data at `omega_H=32`, runs the
+scaled-target gate to get the new `gamma`, trains `pmlfeat` from the existing
+right-FGMRES `pmlfeat` checkpoint, and then runs a seed-2025 actual-left CPU
+smoke test:
+
+```bash
+bash sbatch/launch_left_action_training_beta0p3.sh
+```
+
+Interpretation rule:
+
+1. If left-action-trained `pmlfeat` now works, the previous failure was mainly
+   a training-distribution mismatch.
+2. If it still fails, the problem is more structural: the nonlinear CNN
+   correction is probably not a stable left Arnoldi operator, and the
+   advisor-facing branch should move toward fixed/linear transfer operators
+   `T_down/T_up` before nonlinear learned left preconditioning.
+
 ## High-priority next solver check: flexible left-preconditioned FGMRES
 
 The current left-residual results are **metric sensitivities along a flexible
@@ -578,8 +685,8 @@ The frequency table now starts to have real entries:
 | High frequency | Low frequency | Models to test | Status / reason |
 |---:|---:|---|---|
 | 16 | 8 | plain G6, `pmlfeat` | Complete. Plain G6 gives the best result: CSL about `8--9` iterations to learned median `3`. |
-| 64 | 32 | plain G6, `pmlfeat` | Data `16573326` and gate `16573327` completed. Training jobs `16573328` and `16573331` are running. |
-| 128 | 64 | plain G6, `pmlfeat` | Stress test after `64` works. |
+| 64 | 32 | plain G6, `pmlfeat` | Complete under right-FGMRES and left-metric proxy. CSL median `13`; plain G6 true median `5`; `pmlfeat` true median `5` and left-metric median `4`. Actual-left check is still pending. |
+| 128 | 64 | plain G6, `pmlfeat` | Defer until actual-left checks at `32` and `64` are understood. |
 
 Keep fixed:
 
@@ -604,16 +711,17 @@ Strategic sequence:
 
 1. Treat the completed `omega_L=8 -> omega_H=16` run as a successful sanity
    check.
-2. Implement the actual flexible left-preconditioned FGMRES check at
-   `omega_H=32` using existing checkpoints.
-3. Monitor the submitted `omega_L=32 -> omega_H=64` run, but interpret it as
-   provisional until the actual-left solver path is available.
-4. If sbatch capacity is available before the `omega_H=64` jobs finish, spend
-   it on actual-left implementation/evaluation at `omega_H=32`, not on launching
-   `omega_H=128` yet.
-5. Once actual left-FGMRES is implemented, evaluate `omega_H=16`, `32`, and
-   `64` under the same left-preconditioned formulation.
-6. Only after separate per-frequency models work under this primary solver
+2. Finish the actual flexible left-preconditioned FGMRES-style check at
+   `omega_H=32`, first with seed `2025`.
+3. If seed `2025` is good, run the remaining `omega_H=32` seeds as one-seed
+   CPU jobs.
+4. Evaluate `omega_H=64` under the same actual-left formulation, starting with
+   `pmlfeat`.
+5. Once actual left-FGMRES is implemented and checked, evaluate `omega_H=16`,
+   `32`, and `64` under the same left-preconditioned formulation.
+6. Add iteration-indexed residual metadata before generating the next major
+   dataset.
+7. Only after separate per-frequency models work under this primary solver
    formulation should we test actual
    frequency transfer, such as weight-initialising `omega=64` from the
    `omega=32` model or training one omega-conditioned model across frequencies.

@@ -16,7 +16,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PML_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
-ROOT="$(cd "$PML_DIR/../../../../.." && pwd)"
+ROOT="$(cd "$PML_DIR/../../../.." && pwd)"
 BASE="/orcd/scratch/orcd/006/fkiewiet/freq2transfer/eigenvalue_1d_pml/beta0p3"
 VARIANT="${VARIANT:?Set VARIANT to g6 or pmlfeat}"
 

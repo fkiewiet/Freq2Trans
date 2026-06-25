@@ -37,13 +37,32 @@ import torch
 from pyamg.krylov import fgmres
 
 from config import DEFAULT_CONFIG
-from operators import flux_pml_operator, random_source
+from operators import flux_pml_operator, pml_profile, random_source
 from train_postcsl import DilatedCNN1d
 
 N_PROB  = 200
 TOL     = 1e-6
 RESTRT  = 50
 MAXITER = 20
+
+
+def make_pml_features(cfg, omega: float) -> np.ndarray:
+    n = cfg.n
+    idx = np.arange(n, dtype=np.float32)
+    sigma = pml_profile(omega, cfg).astype(np.float32)
+    sigma = sigma / max(float(np.max(sigma)), 1e-30)
+    pml_mask = np.zeros(n, dtype=np.float32)
+    pml_mask[: cfg.npml] = 1.0
+    pml_mask[n - cfg.npml :] = 1.0
+    signed_x = (2.0 * idx / max(n - 1, 1)) - 1.0
+    return np.stack([sigma, pml_mask, signed_x], axis=0).astype(np.float32)
+
+
+def infer_conditioning(in_ch: int, ckpt: dict) -> str:
+    conditioning = ckpt.get("conditioning")
+    if conditioning:
+        return conditioning
+    return "ul" if in_ch == 4 else "base"
 
 
 # ── FGMRES runner ─────────────────────────────────────────────────────────────
@@ -114,11 +133,18 @@ def main(args) -> dict:
     ckpt   = torch.load(args.ckpt, map_location=device)
     in_ch  = ckpt.get("in_ch", 2)
     width  = ckpt.get("width", 64)
+    conditioning = infer_conditioning(in_ch, ckpt)
     target_gain = float(ckpt.get("target_gain", 1.0))
     model  = DilatedCNN1d(in_ch=in_ch, out_ch=2, width=width).to(device).eval()
     model.load_state_dict(ckpt["model_state"])
-    mode   = "G6-style" if in_ch == 2 else "u_L conditioning"
-    print(f"Model: {mode}  in_ch={in_ch}  width={width}")
+    mode = {
+        "base": "G6-style",
+        "ul": "u_L conditioning",
+        "pml": "PML/location conditioning",
+        "pml_ul": "PML/location + u_L conditioning",
+        "pml_f": "PML/location + source-f conditioning",
+    }.get(conditioning, conditioning)
+    print(f"Model: {mode}  conditioning={conditioning}  in_ch={in_ch}  width={width}")
     print(f"  ep={ckpt.get('epoch','?')}  val={ckpt.get('val', 0):.4f} "
           f"target_gain={target_gain:.3e} loss_domain={ckpt.get('loss_domain', 'interior')}\n")
 
@@ -133,15 +159,18 @@ def main(args) -> dict:
         z0  = LU_CSL.solve(r_c)
         r2  = r_c - A_H @ z0
         s   = max(float(np.linalg.norm(r2)), 1e-30)
-        if in_ch == 2:
-            x = np.stack([r2.real / s, r2.imag / s])[None].astype(np.float32)  # [1, 2, N]
-        else:
-            # For u_L mode: this measurement uses the stored u_L from the source
-            # u_L is injected via the closure below
+        pieces = [np.stack([r2.real / s, r2.imag / s]).astype(np.float32)]
+        if conditioning in {"ul", "pml_ul"}:
             uL  = _current_uL
             sL  = max(float(np.linalg.norm(uL)), 1e-30)
-            x   = np.stack([r2.real/s, r2.imag/s,
-                             uL.real/sL, uL.imag/sL])[None].astype(np.float32)  # [1, 4, N]
+            pieces.append(np.stack([uL.real / sL, uL.imag / sL]).astype(np.float32))
+        if conditioning == "pml_f":
+            fcur = _current_f
+            sF = max(float(np.linalg.norm(fcur)), 1e-30)
+            pieces.append(np.stack([fcur.real / sF, fcur.imag / sF]).astype(np.float32))
+        if conditioning in {"pml", "pml_ul", "pml_f"}:
+            pieces.append(_pml_features)
+        x = np.concatenate(pieces, axis=0)[None].astype(np.float32)
         with torch.no_grad():
             y = model(torch.from_numpy(x).to(device))[0].cpu().numpy()
         return z0 + (y[0] + 1j * y[1]) * s * target_gain
@@ -152,10 +181,12 @@ def main(args) -> dict:
     counts_csl, times_csl, true_csl = [], [], []
     counts_nn,  times_nn,  true_nn  = [], [], []
     _current_uL = np.zeros(n, dtype=complex)  # filled per-problem for in_ch=4
+    _current_f  = np.zeros(n, dtype=complex)  # filled per-problem for source conditioning
+    _pml_features = make_pml_features(cfg, omega_H)
 
     # Need A_L factored for u_L conditioning
     LU_L = None
-    if in_ch == 4:
+    if conditioning in {"ul", "pml_ul"}:
         omega_L = pml_cfg["omega_L"]
         A_L     = flux_pml_operator(omega_L, cfg)
         LU_L    = spla.splu(A_L)
@@ -163,8 +194,9 @@ def main(args) -> dict:
     print(f"Running {N_PROB} problems (seed={args.seed})...")
     for prob_i in range(N_PROB):
         f = random_source(rng, cfg)
+        _current_f = f
 
-        if in_ch == 4:
+        if conditioning in {"ul", "pml_ul"}:
             _current_uL = LU_L.solve(f)
 
         it_csl, ms_csl, tr_csl = run_fgmres(A_H, f, M_csl, n)
@@ -180,6 +212,7 @@ def main(args) -> dict:
         "seed":     args.seed,
         "ckpt":     args.ckpt,
         "in_ch":    in_ch,
+        "conditioning": conditioning,
         "omega_H":  omega_H,
         "beta":     beta,
         "csl_only": summarise("CSL-only",       counts_csl, times_csl, true_csl),

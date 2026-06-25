@@ -1,6 +1,6 @@
 # 1D PML Post-CSL Experiment Log
 
-Last updated: 2026-06-24
+Last updated: 2026-06-25
 
 This is the living record for the 1D PML learned **per-FGMRES-iteration**
 preconditioner. It is separate from the older one-shot PML frequency-transfer
@@ -29,8 +29,8 @@ not only as a warm start.
 | High/low frequencies | `omega_H=32`, `omega_L=16` |
 | Grid | 512 points |
 | PML width | `npml=112` |
-| Selected CSL shift | `beta=0.2` |
-| Baseline | CSL-only FGMRES median 8 iterations |
+| Selected CSL shift | `beta=0.2` in the original sweep; `beta=0.3` also tested as a sensitivity run |
+| Baseline | CSL-only FGMRES median 8 iterations at `beta=0.2`; median 10 iterations at `beta=0.3` |
 | Training data | Logged CSL-preconditioned FGMRES residual calls |
 | Initial full dataset | 2,000 training and 200 validation source problems |
 
@@ -101,14 +101,22 @@ Conclusions:
 3. `u_L` does not improve the small-overfit result, so the first full-data trial
    uses the simpler G6 model.
 
-## Current run
+## Full-data result at beta=0.2
 
 | Job | State when submitted | Purpose |
 |---|---|---|
-| `16492013` | Training | Full-data G6 run with `target_gain=2.840348e-03`, full-domain loss, no gradient clipping, and no weight decay. |
-| `16492014` | `afterok:16492013` | Three-seed, 200-RHS-per-seed FGMRES evaluation with explicit final true residuals. |
+| `16492013` | Completed | Full-data G6 run with `target_gain=2.840348e-03`, full-domain loss, no gradient clipping, and no weight decay. |
+| `16492014` | Completed | Three-seed, 200-RHS-per-seed FGMRES evaluation with explicit final true residuals. |
+| `16497149` | Completed | Left-preconditioned-residual metric sensitivity at `beta=0.2`. |
 
-The evaluation job starts automatically only if training completes successfully.
+Training reached validation loss about `0.0006`, far below the original
+`1.0` plateau. The measured seed that was inspected in detail gave CSL-only
+median 8 iterations and learned G6 median 4 iterations, both with 200/200
+convergence and final true residuals below `1e-6`.
+
+The left-residual metric sensitivity agreed with the true-residual stopping
+picture on the inspected seeds: CSL median 8, learned G6 median 4. This means
+the result is not an artefact of only using the true-residual stopping metric.
 
 ## Current decision rule
 
@@ -129,19 +137,53 @@ The scaled/full-domain run is worth keeping only if all of the following hold:
 | Full-data loss returns to about 1 | Diagnose generalisation and residual-pair diversity before changing architecture. |
 | True residuals disagree with solver history | Treat the iteration result as invalid and repair evaluation first. |
 
-## Planned beta=0.3 sensitivity run
+## Beta=0.3 sensitivity run
 
 The beta sweep selected `beta=0.2` for the original 1D PML baseline. A separate
-`beta=0.3` branch is being prepared for comparison with the 2D thesis setting.
-It must not reuse beta=0.2 data, scaling, or checkpoints. The dependency chain
-will:
+`beta=0.3` branch was run for comparison with the 2D thesis setting. It did not
+reuse beta=0.2 data, scaling, or checkpoints.
 
-1. validate a fixed `beta=0.3` baseline and regenerate FGMRES residual data;
-2. recompute the scaled-target gatekeeper and its own `gamma`;
-3. train the same scaled full-domain G6 model only if the gatekeeper passes;
-4. evaluate three seeds with explicit final true residuals.
+| Job | Outcome |
+|---|---|
+| `16495848` | Data/config for fixed `beta=0.3`. |
+| `16495849` | Scaled-target gatekeeper for `beta=0.3`. |
+| `16495850` | Trained scaled full-domain G6 to epoch 3000. |
+| `16495852` | Three-seed ordinary true-residual evaluation. |
+| `16497150` | Three-seed left-residual metric sensitivity. |
 
-## Planned left-residual metric sensitivity
+The trained model has validation loss about `0.0005` and
+`target_gain=2.784e-03`.
+
+### Ordinary true-residual evaluation
+
+| Seed | CSL median | Learned G6 median | Convergence | Iteration distribution |
+|---:|---:|---:|---|---|
+| 2025 | 10 | 4 | both 200/200 | CSL `{9:70, 10:130}`; learned `{4:199, 5:1}` |
+| 1111 | 10 | 4 | both 200/200 | CSL `{9:83, 10:117}`; learned `{4:199, 5:1}` |
+| 3333 | 10 | 4 | both 200/200 | CSL `{9:85, 10:115}`; learned `{4:200}` |
+
+Final true residuals remained below `1e-6` in the ordinary evaluation. The
+learned preconditioner reduced the median iteration count from 10 to 4 on all
+three seeds. Runtime per problem was about `1.2 ms` for CSL and `3.1-3.2 ms`
+for learned G6, so the mathematical preconditioner works, but the current
+Python/NN implementation is not yet wall-clock faster.
+
+### Left-residual metric sensitivity
+
+| Seed | CSL left median | Learned G6 left median | Convergence |
+|---:|---:|---:|---|
+| 2025 | 10 | 4 | both 200/200 |
+| 1111 | 10 | 4 | both 200/200 |
+| 3333 | 10 | 4 | both 200/200 |
+
+The left-residual sensitivity matches the ordinary true-residual iteration
+picture: CSL median 10 and learned G6 median 4 on all three seeds. The true
+residual at the left-residual stopping point had small medians around
+`3e-7`, with learned-map maxima up to `8.70e-6`; therefore true residual should
+remain the primary solve criterion, and the left-residual metric should be
+reported as a sensitivity check.
+
+## Left-residual metric sensitivity
 
 PyAMG FGMRES uses the learned map as a flexible **right** preconditioner and
 stops on the true residual. An additive evaluation will trace those same
@@ -149,6 +191,34 @@ right-FGMRES iterates and report the first one satisfying
 `||M_k^{-1}(b-Ax_k)|| / ||M_0^{-1}b|| <= 1e-6`, together with its true residual.
 For the learned nonlinear map this is called an instantaneous left-residual
 proxy, not a replacement left-FGMRES solve. No retraining is needed.
+
+The beta=0.2 and beta=0.3 left-metric checks are now complete and support the
+same iteration-count conclusion as the ordinary evaluation.
+
+## Beta=0.3 architecture portfolio
+
+The main beta=0.3 baseline is now fixed:
+
+| Model | Result |
+|---|---|
+| CSL-only | median 10 FGMRES iterations |
+| scaled full-domain G6 | median 4 FGMRES iterations |
+
+The next portfolio keeps beta, data, scaling, width, training length, ordinary
+evaluation seeds, and left-metric evaluation fixed. Only the input channels are
+changed.
+
+| Variant | Channels | Reason |
+|---|---|---|
+| `pmlfeat` | `r2` plus `sigma(x)`, PML mask, signed coordinate | Gives the CNN explicit PML/location information because PML breaks translation symmetry. |
+| `pml_ul` | `r2`, `u_L`, plus PML/location features | Combines PML geometry with the low-frequency global context that helped the Dirichlet case. |
+| `pml_f` | `r2`, source `f`, plus PML/location features | Tests whether source conditioning improves robustness or pushes more cases to fewer iterations. |
+
+The success target is not only median 4 to median 3. Useful wins include more
+3-iteration cases, fewer 5-iteration cases, lower residuals at iteration 4,
+better left-metric agreement, or reduced variance. If all three variants match
+the baseline, the current G6 input representation is probably already close to
+the useful limit for this 1D PML setting.
 
 ## Useful commands
 

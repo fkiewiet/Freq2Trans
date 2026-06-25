@@ -53,18 +53,19 @@ import torch.optim as optim
 from torch.utils.data import DataLoader, Dataset
 
 from config import DEFAULT_CONFIG
-from operators import flux_pml_operator
+from operators import flux_pml_operator, pml_profile
 from train_postcsl import DilatedCNN1d  # reuse the validated architecture
 
 # Module-level operator references — populated by _build_ops() at startup
 _A_H    = None
 _LU_CSL = None
 _INT_SL = None   # interior slice for masked loss
+_PML_FEATURES = None
 
 
 def _build_ops(pml_cfg: dict) -> None:
     """Build and factor PML operators from the config. Called once at startup."""
-    global _A_H, _LU_CSL, _INT_SL
+    global _A_H, _LU_CSL, _INT_SL, _PML_FEATURES
     cfg     = DEFAULT_CONFIG.with_updates(sigma_scale=pml_cfg.get("sigma_scale", 1.0))
     omega_H = pml_cfg["omega_H"]
     beta    = pml_cfg["beta"]
@@ -74,6 +75,36 @@ def _build_ops(pml_cfg: dict) -> None:
     _LU_CSL = spla.splu(A_CSL)
     print("done")
     _INT_SL = slice(pml_cfg["interior_lo"], pml_cfg["interior_hi"])
+    _PML_FEATURES = make_pml_features(cfg, omega_H)
+
+
+def make_pml_features(cfg, omega: float) -> np.ndarray:
+    """Static location/PML channels, shape [3, n].
+
+    A convolutional network is translation-equivariant, while the PML operator
+    is not: the boundary damping makes identical residual patterns mean
+    different things near the edges. These channels tell the network where the
+    PML is and how strong the local damping is.
+    """
+    n = cfg.n
+    idx = np.arange(n, dtype=np.float32)
+    sigma = pml_profile(omega, cfg).astype(np.float32)
+    sigma = sigma / max(float(np.max(sigma)), 1e-30)
+    pml_mask = np.zeros(n, dtype=np.float32)
+    pml_mask[: cfg.npml] = 1.0
+    pml_mask[n - cfg.npml :] = 1.0
+    signed_x = (2.0 * idx / max(n - 1, 1)) - 1.0
+    return np.stack([sigma, pml_mask, signed_x], axis=0).astype(np.float32)
+
+
+def infer_conditioning(in_ch: int, conditioning: str) -> str:
+    if conditioning != "auto":
+        return conditioning
+    return "ul" if in_ch == 4 else "base"
+
+
+def expected_in_ch(conditioning: str) -> int:
+    return {"base": 2, "ul": 4, "pml": 5, "pml_ul": 7, "pml_f": 7}[conditioning]
 
 
 # ── Dataset ───────────────────────────────────────────────────────────────────
@@ -85,9 +116,15 @@ class PmlDataset(Dataset):
     in_ch=2  (G6-style):
         x = [r2_re/s, r2_im/s]             where r2 = r - A_H^PML · CSL⁻¹r
 
-    in_ch=4  (u_L conditioning):
+    conditioning="ul"  (u_L conditioning):
         x = [r2_re/s, r2_im/s, uL_re/sL, uL_im/sL]
         uL = A_L^PML⁻¹ f  stored in the npz by generate_pml_data.py
+
+    conditioning="pml":
+        x = [r2_re/s, r2_im/s, sigma(x), pml_mask(x), signed_x]
+
+    conditioning="pml_ul" / "pml_f":
+        additionally append the normalised low-frequency solve or source.
 
     Target:
         y = [corr_re/s, corr_im/s]         where corr = A_H^PML⁻¹r₂ = eh - z0
@@ -95,7 +132,18 @@ class PmlDataset(Dataset):
     Interior masking is applied by the loss function, not here.
     """
 
-    def __init__(self, npz_path: str, in_ch: int, target_gain: float = 1.0) -> None:
+    def __init__(
+        self,
+        npz_path: str,
+        in_ch: int,
+        target_gain: float = 1.0,
+        conditioning: str = "auto",
+    ) -> None:
+        self.conditioning = infer_conditioning(in_ch, conditioning)
+        expected = expected_in_ch(self.conditioning)
+        if in_ch != expected:
+            raise ValueError(f"conditioning={self.conditioning!r} expects in_ch={expected}, got {in_ch}")
+
         data = np.load(npz_path)
         M    = data["r"].shape[0]
         print(f"  Loading {M:,} pairs from {Path(npz_path).name}...", end=" ", flush=True)
@@ -117,16 +165,32 @@ class PmlDataset(Dataset):
         y    = np.stack([corr.real / (s * target_gain),
                          corr.imag / (s * target_gain)], axis=1).astype(np.float32)
 
-        if in_ch == 4:
+        pieces = [x_r2]
+
+        if self.conditioning in {"ul", "pml_ul"}:
             if "uL" not in data:
-                raise KeyError("in_ch=4 requires 'uL' key in npz. "
+                raise KeyError("u_L conditioning requires 'uL' key in npz. "
                                "Regenerate data with generate_pml_data.py.")
             uL = (data["uL"][:,0,:] + 1j * data["uL"][:,1,:]).astype(np.complex128)
             sL = np.linalg.norm(uL, axis=1, keepdims=True).clip(min=1e-30)
             x_ul = np.stack([uL.real / sL, uL.imag / sL], axis=1).astype(np.float32)
-            x = np.concatenate([x_r2, x_ul], axis=1)   # [M, 4, N]
-        else:
-            x = x_r2                                     # [M, 2, N]
+            pieces.append(x_ul)
+
+        if self.conditioning == "pml_f":
+            if "f" not in data:
+                raise KeyError("pml_f conditioning requires 'f' key in npz.")
+            f = (data["f"][:,0,:] + 1j * data["f"][:,1,:]).astype(np.complex128)
+            sF = np.linalg.norm(f, axis=1, keepdims=True).clip(min=1e-30)
+            x_f = np.stack([f.real / sF, f.imag / sF], axis=1).astype(np.float32)
+            pieces.append(x_f)
+
+        if self.conditioning in {"pml", "pml_ul", "pml_f"}:
+            if _PML_FEATURES is None:
+                raise RuntimeError("PML features were not initialised; call _build_ops first.")
+            x_pml = np.broadcast_to(_PML_FEATURES[None, :, :], (M, 3, _PML_FEATURES.shape[1]))
+            pieces.append(x_pml.astype(np.float32, copy=False))
+
+        x = np.concatenate(pieces, axis=1)
 
         self.x = torch.from_numpy(x)
         self.y = torch.from_numpy(y)
@@ -158,10 +222,21 @@ def train(args: argparse.Namespace, pml_cfg: dict) -> None:
     os.makedirs(args.out_dir, exist_ok=True)
 
     # Print header
-    mode_str = "G6-style (no conditioning)" if args.in_ch == 2 else "u_L conditioning"
+    args.conditioning = infer_conditioning(args.in_ch, args.conditioning)
+    expected = expected_in_ch(args.conditioning)
+    if args.in_ch != expected:
+        raise ValueError(f"--conditioning {args.conditioning} expects --in_ch {expected}")
+
+    mode_str = {
+        "base": "G6-style (no conditioning)",
+        "ul": "u_L conditioning",
+        "pml": "PML/location conditioning",
+        "pml_ul": "PML/location + u_L conditioning",
+        "pml_f": "PML/location + source-f conditioning",
+    }[args.conditioning]
     print(f"\n{'='*60}")
     print(f"1D PML post-CSL trainer — {mode_str}")
-    print(f"  in_ch={args.in_ch}, width={args.width}")
+    print(f"  conditioning={args.conditioning}, in_ch={args.in_ch}, width={args.width}")
     print(f"  ω_H={pml_cfg['omega_H']}, β={pml_cfg['beta']}")
     print(f"  CSL baseline: {pml_cfg['csl_baseline_median']:.1f} iters")
     print(f"  Interior loss mask: [{pml_cfg['interior_lo']}:{pml_cfg['interior_hi']}]")
@@ -174,9 +249,9 @@ def train(args: argparse.Namespace, pml_cfg: dict) -> None:
 
     # Data
     tr_ds  = PmlDataset(os.path.join(args.data_dir, "train.npz"), in_ch=args.in_ch,
-                        target_gain=args.target_gain)
+                        target_gain=args.target_gain, conditioning=args.conditioning)
     val_ds = PmlDataset(os.path.join(args.data_dir, "val.npz"),   in_ch=args.in_ch,
-                        target_gain=args.target_gain)
+                        target_gain=args.target_gain, conditioning=args.conditioning)
     tr_dl  = DataLoader(tr_ds,  batch_size=args.batch, shuffle=True,  num_workers=4, pin_memory=True)
     val_dl = DataLoader(val_ds, batch_size=args.batch, shuffle=False, num_workers=2, pin_memory=True)
 
@@ -250,6 +325,7 @@ def train(args: argparse.Namespace, pml_cfg: dict) -> None:
             "val":         val_loss,
             "in_ch":       args.in_ch,
             "width":       args.width,
+            "conditioning": args.conditioning,
             "target_gain": args.target_gain,
             "loss_domain": args.loss_domain,
             "model_state": model.state_dict(),
@@ -295,8 +371,11 @@ def main() -> None:
     p.add_argument("--data_dir",   type=str,   default="data_pml",
                    help="Directory with train.npz and val.npz from generate_pml_data.py")
     p.add_argument("--out_dir",    type=str,   default="runs_pml_g6")
-    p.add_argument("--in_ch",      type=int,   default=2,   choices=[2, 4],
-                   help="2=G6-style, 4=u_L conditioning (requires uL key in npz)")
+    p.add_argument("--in_ch",      type=int,   default=2,   choices=[2, 4, 5, 7],
+                   help="2=G6-style, 4=u_L, 5=PML/location, 7=PML+u_L or PML+f")
+    p.add_argument("--conditioning", choices=["auto", "base", "ul", "pml", "pml_ul", "pml_f"],
+                   default="auto",
+                   help="Input-channel recipe. 'auto' preserves old in_ch=2/4 behaviour.")
     p.add_argument("--width",      type=int,   default=64,
                    help="DilatedCNN channel width")
     p.add_argument("--epochs",     type=int,   default=3000)

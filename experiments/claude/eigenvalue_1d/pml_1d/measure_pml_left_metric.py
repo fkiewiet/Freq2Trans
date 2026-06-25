@@ -31,8 +31,27 @@ import torch
 from pyamg.krylov import fgmres
 
 from config import DEFAULT_CONFIG
-from operators import flux_pml_operator, random_source
+from operators import flux_pml_operator, pml_profile, random_source
 from train_postcsl import DilatedCNN1d
+
+
+def make_pml_features(cfg, omega: float) -> np.ndarray:
+    n = cfg.n
+    idx = np.arange(n, dtype=np.float32)
+    sigma = pml_profile(omega, cfg).astype(np.float32)
+    sigma = sigma / max(float(np.max(sigma)), 1e-30)
+    pml_mask = np.zeros(n, dtype=np.float32)
+    pml_mask[: cfg.npml] = 1.0
+    pml_mask[n - cfg.npml :] = 1.0
+    signed_x = (2.0 * idx / max(n - 1, 1)) - 1.0
+    return np.stack([sigma, pml_mask, signed_x], axis=0).astype(np.float32)
+
+
+def infer_conditioning(in_ch: int, ckpt: dict) -> str:
+    conditioning = ckpt.get("conditioning")
+    if conditioning:
+        return conditioning
+    return "ul" if in_ch == 4 else "base"
 
 
 def first_passing(records: list[dict], key: str, tol: float) -> dict | None:
@@ -83,16 +102,19 @@ def main(args: argparse.Namespace) -> None:
     device = torch.device(args.device if torch.cuda.is_available() else "cpu")
     ckpt = torch.load(args.ckpt, map_location=device)
     in_ch, width = ckpt.get("in_ch", 2), ckpt.get("width", 64)
+    conditioning = infer_conditioning(in_ch, ckpt)
     target_gain = float(ckpt.get("target_gain", 1.0))
     model = DilatedCNN1d(in_ch=in_ch, out_ch=2, width=width).to(device).eval()
     model.load_state_dict(ckpt["model_state"])
-    lu_l = spla.splu(flux_pml_operator(pml["omega_L"], cfg)) if in_ch == 4 else None
+    lu_l = spla.splu(flux_pml_operator(pml["omega_L"], cfg)) if conditioning in {"ul", "pml_ul"} else None
+    pml_features = make_pml_features(cfg, omega_h)
 
     print("=" * 72)
     print("PML left-preconditioned-residual metric sensitivity")
     print(f"omega_H={omega_h}, beta={beta}, seed={args.seed}, n={args.n_problems}, "
           f"fixed right-FGMRES budget={args.max_iters}")
-    print(f"checkpoint={args.ckpt}; in_ch={in_ch}; target_gain={target_gain:.3e}")
+    print(f"checkpoint={args.ckpt}; conditioning={conditioning}; in_ch={in_ch}; "
+          f"target_gain={target_gain:.3e}")
     print("=" * 72)
 
     rng = np.random.default_rng(args.seed)
@@ -109,12 +131,16 @@ def main(args: argparse.Namespace) -> None:
             z0 = lu_csl.solve(r)
             r2 = r - a_h @ z0
             s = max(float(np.linalg.norm(r2)), 1e-30)
-            if in_ch == 2:
-                x = np.stack((r2.real / s, r2.imag / s))[None].astype(np.float32)
-            else:
+            pieces = [np.stack((r2.real / s, r2.imag / s)).astype(np.float32)]
+            if conditioning in {"ul", "pml_ul"}:
                 s_l = max(float(np.linalg.norm(current_ul)), 1e-30)
-                x = np.stack((r2.real/s, r2.imag/s, current_ul.real/s_l, current_ul.imag/s_l))[None]
-                x = x.astype(np.float32)
+                pieces.append(np.stack((current_ul.real / s_l, current_ul.imag / s_l)).astype(np.float32))
+            if conditioning == "pml_f":
+                s_f = max(float(np.linalg.norm(f)), 1e-30)
+                pieces.append(np.stack((f.real / s_f, f.imag / s_f)).astype(np.float32))
+            if conditioning in {"pml", "pml_ul", "pml_f"}:
+                pieces.append(pml_features)
+            x = np.concatenate(pieces, axis=0)[None].astype(np.float32)
             with torch.no_grad():
                 y = model(torch.from_numpy(x).to(device))[0].cpu().numpy()
             return z0 + (y[0] + 1j*y[1]) * s * target_gain

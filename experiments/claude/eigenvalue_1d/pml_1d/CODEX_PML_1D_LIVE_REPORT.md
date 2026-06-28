@@ -1,10 +1,1144 @@
 # 1D PML Post-CSL Experiment Log
 
-Last updated: 2026-06-25
+Last updated: 2026-06-26
 
 This is the living record for the 1D PML learned **per-FGMRES-iteration**
 preconditioner. It is separate from the older one-shot PML frequency-transfer
 checkpoints in `../runs/pair_*_pml/`.
+
+## Daily handoff: 2026-06-25
+
+### What we clarified today
+
+1. The main successful object is still the **post-CSL per-iteration correction**
+   used inside right/Flexible GMRES:
+
+   ```text
+   y -> CSL_H^{-1} y -> r2_H = y - A_H CSL_H^{-1} y
+     -> learned correction of r2_H -> add back to CSL_H^{-1} y
+   ```
+
+2. The right-FGMRES evidence is now strong across frequencies:
+
+   | `omega_H` | Main result |
+   |---:|---|
+   | `16` | CSL about `8--9` iterations; learned plain G6 median `3`. |
+   | `32` | CSL median `10`; learned plain G6 / `pmlfeat` median `4`. |
+   | `64` | CSL median `13`; learned plain G6 / `pmlfeat` median `5`; `pmlfeat` gives many four-iteration solves and left-metric proxy median `4`. |
+
+3. The beta=0.3 architecture sweep is effectively closed. Keep plain G6 as the
+   simplest reference model and `pmlfeat` as the best distributional/high-frequency
+   variant. Do not continue `pml_ul` or `pml_f` unless a new failure mode asks
+   for them.
+
+4. The important unresolved question is no longer whether the learned
+   post-CSL correction works in right-FGMRES. It does. The unresolved question is
+   whether a learned post-CSL correction can be made stable/useful inside the
+   advisor/Kees-aligned **actual left Arnoldi action**
+
+   ```text
+   w = M^{-1} A_H v_j.
+   ```
+
+5. Reusing the right-trained `pmlfeat` checkpoint inside actual-left Arnoldi
+   failed on the seed-2025 smoke test. That does not invalidate the right-FGMRES
+   result; it shows the actual-left action feeds the network a different vector
+   distribution.
+
+6. The correct response was launched today: train on actual left-action data
+   where the model sees vectors derived from `y=A_Hv_j`, not right-FGMRES
+   residual calls.
+
+### 2026-06-26 update: left-action training result
+
+The Kees-aligned left-action branch completed. The result is important but not
+a solver success:
+
+| Job | Meaning | State / latest known result |
+|---:|---|---|
+| `16578514` | Generate left-action data | Completed. |
+| `16578515` | Gate / scaling / small-overfit | Completed. Selected `gamma=1.140045e-03`; 128-pair full-domain loss `0.04524`, so the gate passed. |
+| `16578516` | Train left-action `pmlfeat` | Completed. Best validation loss `0.0005`, so the supervised left-action target was learned cleanly. |
+| `16578901` | Manual seed-2025 smoke test using early `best.pt` | Completed. Learned actual-left failed completely: left median sentinel `1000`, `0/50` left convergence. |
+| `16578517` | Scheduled seed-2025 smoke test after training | Completed. Learned actual-left had left median `3.0` with `38/50` left convergence, but `0/50` true convergence and true residual median `1.09e-4`. |
+
+The left-action target is harder than the right-FGMRES target. Its gate showed
+top-one energy `0.107`, top-five energy `0.448`, and rank `22 / 28 / 39` for
+`90% / 95% / 99%` energy. This is less compressed than the earlier right-side
+correction geometry, but the small-overfit result says it is still learnable.
+
+The final smoke-test comparison is:
+
+| Method | Left metric | True-residual safety | Interpretation |
+|---|---|---|---|
+| CSL-only actual-left | left median `9.0`, left convergence `50/50`, left distribution `{9:40, 10:10}` | true convergence `7/50`; true residual at left stop median `3.09e-6`, max `6.77e-6` | Baseline left solve is imperfect under true-residual safety but behaves sensibly. |
+| left-action-trained `pmlfeat` | left median `3.0`, left convergence `38/50`, left distribution `{3:37, 4:1, 1000:12}` | true convergence `0/50`; true residual at left stop median `1.09e-4`, max `1.86e-4` | The learned map improves the left metric for many cases but fails the true-residual safety check. |
+
+Interpretation:
+
+1. The previous actual-left failure was not merely a simple supervised-training
+   failure. The network learned the left-action correction target to validation
+   loss `0.0005`, yet the actual-left solve still failed true-residual safety.
+2. Left-action training partially repaired the left-preconditioned residual
+   metric, but it did not produce a valid solver.
+3. Do **not** run the remaining seeds `1111` and `3333` as if this branch
+   succeeded. More seeds would mostly confirm a failure mode we already see.
+4. The advisor-facing conclusion should be: nonlinear CNN post-CSL correction is
+   useful and stable in right-FGMRES, but is not currently a reliable drop-in
+   nonlinear left Arnoldi operator.
+
+### Recommended next move
+
+The next step should be diagnostic and conservative, not another full nonlinear
+left-action sweep.
+
+Recommended immediate diagnostic:
+
+```text
+actual-left damping/safeguard sweep:
+M^{-1} y = z0 + alpha * c_NN
+alpha in {0.05, 0.1, 0.25, 0.5}
+seed = 2025
+N_PROBLEMS = 50
+primary check = true residual at the left stop
+```
+
+Decision rule:
+
+| Damping outcome | Interpretation / action |
+|---|---|
+| Small `alpha` restores true-residual safety and still improves left iterations | The issue is likely an overly aggressive correction. Then consider a safeguarded/damped nonlinear left-action variant. |
+| Small `alpha` gives safety but no useful iteration improvement | Nonlinear left action is not worth pursuing now; pivot to fixed/linear transfer. |
+| Small `alpha` still fails true-residual safety | Treat this as structural nonlinear-left-action instability; pivot immediately to fixed/linear transfer operators. |
+
+After that diagnostic, the preferred research direction is:
+
+1. Keep the right-FGMRES post-CSL correction as the solid successful result.
+2. Report the left-residual proxy along right-FGMRES as a sensitivity metric,
+   not as an actual left-preconditioned solve.
+3. Move the advisor-facing actual-left branch toward fixed or linear operators:
+
+   ```text
+   CSL-only actual-left baseline
+   -> damped/safeguarded learned correction diagnostic
+   -> hand-designed linear T_down/T_up
+   -> learned linear T_down/T_up
+   -> nonlinear transfer only if the linear story is stable
+   ```
+
+Before generating major new data, add explicit `problem_idx`, `iter_idx`, `r2`,
+correction norms, and stopping metadata.
+
+### Clarification: CSL is not inherently left or right
+
+CSL is the approximate inverse/preconditioner. It is not, by itself, a left
+or right preconditioner. “Left” and “right” describe where the same
+preconditioning solve is placed inside GMRES.
+
+For the original Helmholtz system
+
+```text
+A x = b
+```
+
+let `M_CSL^{-1}` denote one CSL solve. The same `M_CSL^{-1}` can be used in
+two different ways.
+
+Right-preconditioned CSL solves
+
+```text
+A M_CSL^{-1} y = b,
+x = M_CSL^{-1} y.
+```
+
+In an Arnoldi step, this looks like
+
+```text
+v -> M_CSL^{-1} v -> A(M_CSL^{-1} v).
+```
+
+This is the setting closest to the successful flexible/right-GMRES
+experiments. The important practical advantage is that convergence is checked
+against the true physical residual
+
+```text
+||b - A x||.
+```
+
+Left-preconditioned CSL solves
+
+```text
+M_CSL^{-1} A x = M_CSL^{-1} b.
+```
+
+In an Arnoldi step, this looks like
+
+```text
+v -> A v -> M_CSL^{-1}(A v).
+```
+
+This is the formulation that naturally matches the classical
+left-preconditioned GMRES picture, and likely explains why it is attractive
+from a numerical-analysis point of view. However, GMRES now minimizes the
+preconditioned residual
+
+```text
+||M_CSL^{-1}(b - A x)||,
+```
+
+which is not automatically the same thing as minimizing the true residual
+
+```text
+||b - A x||.
+```
+
+For plain CSL this distinction is usually manageable because `M_CSL^{-1}` is a
+fixed linear solve. For the learned post-CSL correction, the distinction is
+much sharper. The learned map is nonlinear/input-dependent:
+
+```text
+z0 = CSL^{-1} y
+r2 = y - A z0
+M_NN^{-1}(y) = z0 + NN(r2).
+```
+
+Therefore
+
+```text
+A M_NN^{-1} y
+```
+
+and
+
+```text
+M_NN^{-1} A v
+```
+
+are not just two equivalent rearrangements of the same operator. They feed
+different distributions of vectors into the neural network. This is why the
+left/right comparison must be done with matched training data and actual
+solver evaluations, rather than by assuming that a right-trained neural
+preconditioner should transfer to left Arnoldi.
+
+Operationally, the current decision rule is:
+
+```text
+Right deployment succeeds if it reduces true-residual FGMRES iterations.
+Left deployment succeeds only if the flexible/nonlinear left-action Krylov
+method reduces iterations and still gives safe true residuals for the original
+Helmholtz problem.
+```
+
+Important wording: because the learned post-CSL correction is nonlinear/input
+dependent, both the right and left deployments should be treated as flexible
+GMRES-type experiments. The comparison is not “flexible right versus ordinary
+left.” It is:
+
+```text
+right flexible GMRES with nonlinear post-CSL correction
+versus
+left flexible/action-GMRES with nonlinear post-CSL correction.
+```
+
+The distinction is where the nonlinear preconditioner is applied, and which
+residual remains reliable as a stopping/safety metric.
+
+### Left versus right preconditioning: fair decision plan
+
+Do not treat the current right-trained neural map as a rock-solid pillar by
+default. The fair question is broader:
+
+```text
+Which post-CSL correction operator is actually the right object to train and
+deploy: a flexible right-preconditioned correction, a nonlinear left-action
+correction, a damped/safeguarded nonlinear left-action correction, or a fixed
+/ linear transfer operator that fits standard left-preconditioned GMRES better?
+```
+
+The current evidence supports a provisional opinion:
+
+```text
+Right-FGMRES deployment is successful for this learned post-CSL map.
+Undamped nonlinear CNN deployment inside actual-left Arnoldi is not safe yet,
+even after retraining on left-action vectors.
+```
+
+But the final call should separate four different questions:
+
+1. **Does the learned correction help as a right/flexible preconditioner?**  
+   Current answer: yes, across `omega_H=16,32,64`.
+2. **Does the same learned correction define a reliable nonlinear left Arnoldi
+   operator?**  
+   Current answer: no, not in the tested form.
+3. **Is the left failure caused by too much learned correction, or by a more
+   structural incompatibility between nonlinear CNN corrections and the left
+   Arnoldi process?**  
+   Current answer: unknown. This is the next diagnostic question.
+4. **If nonlinear left-action corrections remain unsafe, is a fixed or linear
+   transfer operator the better advisor-facing formulation?**  
+   Current answer: likely, but not yet tested.
+
+#### Minimum experiments for a defensible final call
+
+| Tier | Experiment | What it decides | Required outcome |
+|---:|---|---|---|
+| 1 | Keep the completed right-FGMRES table for `omega_H=16,32,64`, with true residuals and convergence counts. | Whether the learned post-CSL correction is useful in the deployment where it was trained and originally intended. | Already positive: learned models reduce iterations and preserve true-residual convergence. |
+| 2 | Compare right-FGMRES true-residual stopping with the instantaneous left-residual proxy along the same trajectory. | Whether the right-FGMRES result is merely a stopping-metric artefact. | Already mostly positive: the proxy agrees at the median level, but must remain labelled as a sensitivity metric. |
+| 3 | Actual-left CSL-only baseline at `omega_H=32`, seed `2025`, with left residual and true residual at left stop. | Establishes the apples-to-apples left-preconditioned reference. | Already available: left median `9`, left convergence `50/50`, but true convergence only `7/50`. |
+| 4 | Actual-left with right-trained `pmlfeat`. | Tests whether the right-trained map transfers directly to left Arnoldi. | Already negative: fails badly. |
+| 5 | Actual-left with left-action-trained `pmlfeat`. | Tests whether the failure was only a training-distribution mismatch. | Already negative under true-residual safety: supervised loss `0.0005`, left median `3`, but true convergence `0/50`. |
+| 6 | Train/evaluate actual-left with left-action-trained plain G6 as an architecture control. | Tests whether the left-action failure is specific to `pmlfeat`/warm-starting or generic for the nonlinear correction. | Run only at `omega_H=32`, seed `2025`, `N_PROBLEMS=50` first. |
+| 7 | Actual-left damping/safeguard sweep for the left-action-trained model. | Distinguishes “correction too aggressive” from “structural nonlinear-left instability.” | Pending. This is the one remaining high-value diagnostic before abandoning nonlinear-left. |
+| 8 | If damping succeeds, repeat damped actual-left on seeds `1111` and `3333`. | Tests whether a safeguarded nonlinear-left method is robust enough to keep. | Only do this if seed `2025` passes true-residual safety. |
+| 9 | If damping fails, stop nonlinear-left CNN experiments and test fixed/linear transfer operators. | Moves toward a formulation compatible with standard preconditioned GMRES reasoning. | This becomes the preferred publishable/advisor-facing branch. |
+
+The fair operator set is therefore:
+
+| Operator family | Training data | Solver/evaluator | Why it is included |
+|---|---|---|---|
+| CSL-only | none | actual-left and right-FGMRES baseline | The classical reference. |
+| Right-trained nonlinear post-CSL CNN | right-FGMRES residual calls | right-FGMRES, plus left-metric proxy | Tests the successful original idea. |
+| Right-trained nonlinear post-CSL CNN reused in actual-left | right-FGMRES residual calls | actual-left Arnoldi | Tests whether the learned map transfers across formulations. Already negative. |
+| Left-action-trained nonlinear post-CSL CNN | `y=A_H v_j` left-action vectors | actual-left Arnoldi | Tests whether the left failure was only a training-distribution mismatch. Already negative for `pmlfeat` under true safety. |
+| Damped left-action-trained nonlinear CNN | same as above | actual-left Arnoldi with `alpha < 1` | Tests whether the correction is useful but too aggressive. |
+| Fixed/linear post-CSL transfer | paired correction/residual data | standard actual-left GMRES | Cleaner numerical-analysis object if nonlinear-left remains unsafe. |
+
+#### Damping/safeguard diagnostic
+
+Use the final left-action-trained checkpoint and evaluate
+
+```text
+M_alpha^{-1} y = CSL_H^{-1} y + alpha * c_NN(y)
+```
+
+for
+
+```text
+alpha in {0.05, 0.1, 0.25, 0.5}
+seed = 2025
+N_PROBLEMS = 50
+omega_H = 32
+beta = 0.3
+```
+
+Report, for each `alpha`:
+
+```text
+left median
+left convergence count
+true convergence count
+median/max true residual at left stop
+iteration distribution
+runtime per problem
+```
+
+Decision rule:
+
+| Result | Final opinion |
+|---|---|
+| A small `alpha` gives true-residual safety and useful left-iteration reduction | Right preconditioning works, and a damped nonlinear-left variant may also be viable. Continue only with safeguarded left action. |
+| A small `alpha` gives true-residual safety but no iteration benefit | Right preconditioning is the useful nonlinear method; left nonlinear CNN is not worth keeping. |
+| No tested `alpha` gives true-residual safety | Make the final call that nonlinear CNN left Arnoldi is unstable/unreliable here; pivot to fixed/linear transfer operators. |
+
+The evaluator now supports this diagnostic via:
+
+```bash
+cd /home/fkiewiet/Freq2Transfer/experiments/claude/eigenvalue_1d/pml_1d
+
+VARIANTS="pmlfeat" \
+ALPHAS="0.05 0.1 0.25 0.5 1.0" \
+SEEDS="2025" \
+N_PROBLEMS=50 \
+bash sbatch/launch_left_action_alpha_sweep_beta0p3.sh
+```
+
+If `pmlfeat` gives no safe `alpha`, optionally run the plain-G6 control:
+
+```bash
+# Train the plain-G6 left-action model using the already supported branch.
+VARIANTS="g6" N_PROBLEMS=50 bash sbatch/launch_left_action_training_beta0p3.sh
+
+# Then run the same damping sweep for G6.
+VARIANTS="g6" \
+ALPHAS="0.05 0.1 0.25 0.5 1.0" \
+SEEDS="2025" \
+N_PROBLEMS=50 \
+bash sbatch/launch_left_action_alpha_sweep_beta0p3.sh
+```
+
+#### Figures needed for a publishable left-versus-right story
+
+The paper/thesis story needs visual evidence, not only tables. The useful
+figures are:
+
+| Figure | What to plot | Why it matters |
+|---|---|---|
+| Solver-formulation diagram | Right-FGMRES action `A M_k^{-1}` versus left Arnoldi action `M^{-1} A v_j`. | Makes clear why the two methods are not equivalent for a nonlinear learned map. |
+| Post-CSL correction block diagram | `y -> CSL^{-1}y -> r2 -> learned/linear correction -> z0+c`. | Shows that the learned part corrects CSL's defect, not the full solve. |
+| Iteration-count distributions | CSL-only, right-trained right-FGMRES, right-trained actual-left, left-action-trained actual-left, damped actual-left. | Shows success/failure patterns more honestly than only medians. |
+| Residual history curves | True residual and left-preconditioned residual versus iteration for representative RHSs. | Shows where the left metric and true residual disagree. |
+| True residual at left stop | Scatter/box plot of true residual at the iteration where the left metric stops, with a `1e-6` line. | This is the key safety figure for the actual-left failure. |
+| Alpha sweep curve | `alpha` versus left median, true convergence count, and true residual at left stop. | Decides whether the nonlinear left correction is merely too aggressive. |
+| Target-geometry spectrum | Singular-value/PCA energy for right residual targets versus left-action targets. | Explains why left-action training is harder and less compressed. |
+| Correction alignment diagnostics | Norm ratio and angle/cosine between predicted and exact correction, separated by right-data and left-action-data distributions. | Helps distinguish “bad magnitude” from “wrong direction.” |
+
+#### Fair scratch left/right branch setup
+
+The existing right and left branches were informative, but not perfectly
+matched. In particular, the original right data did not store explicit
+`problem_idx` / `call_idx`, and the left-action `pmlfeat` model was warm-started
+from the right-trained checkpoint. For a cleaner comparison, use a separate
+scratch branch:
+
+```text
+scratch base = /orcd/scratch/orcd/006/fkiewiet/freq2transfer/eigenvalue_1d_pml/beta0p3_fair_lr
+same beta/config
+same train/validation source seed for right and left data
+explicit problem_idx and call_idx in both datasets
+right data = CSL-right/Flexible-GMRES preconditioner-call residuals
+left data  = CSL-left Arnoldi vectors y=A_H v_j
+models     = G6 and pmlfeat, trained from scratch
+evaluation = every trained model in both right-FGMRES and actual-left
+```
+
+New/updated files:
+
+```text
+generate_pml_data.py
+  now also saves problem_idx, call_idx, and metadata.json
+
+measure_pml.py
+  now supports --n_problems for smoke/full evaluation control
+
+measure_pml_actual_left.py
+  now supports --learned_alpha for damped left-action tests
+
+sbatch/job41_fair_lr_data_beta0p3.sh
+sbatch/job42_fair_lr_gate_beta0p3.sh
+sbatch/job43_fair_lr_train_beta0p3.sh
+sbatch/job44_fair_lr_eval_right_beta0p3.sh
+sbatch/job45_fair_lr_eval_actual_left_beta0p3.sh
+sbatch/launch_fair_left_right_beta0p3.sh
+sbatch/launch_left_action_alpha_sweep_beta0p3.sh
+```
+
+Recommended first smoke launch:
+
+```bash
+cd /home/fkiewiet/Freq2Transfer/experiments/claude/eigenvalue_1d/pml_1d
+
+bash sbatch/launch_fair_left_right_beta0p3.sh
+```
+
+This defaults to:
+
+```text
+N_TRAIN=2000
+N_VAL=200
+DATA_SEED=7777
+TRAIN_SIDES="right left"
+VARIANTS="g6 pmlfeat"
+EVAL_SEEDS="2025"
+RIGHT_N_PROBLEMS=50
+LEFT_N_PROBLEMS=50
+LEFT_ALPHA=1.0
+```
+
+It runs the fair smoke matrix:
+
+| Trained on | Model | Evaluated in right-FGMRES | Evaluated in actual-left |
+|---|---|---:|---:|
+| right data | G6 | yes | yes |
+| right data | pmlfeat | yes | yes |
+| left-action data | G6 | yes | yes |
+| left-action data | pmlfeat | yes | yes |
+
+After the smoke matrix completes:
+
+1. If right-trained models work in right-FGMRES and fail actual-left, while
+   left-trained models also fail actual-left under true-residual safety, that is
+   strong evidence against undamped nonlinear CNN left-action preconditioning.
+2. If left-trained models work in actual-left, then the previous `pmlfeat`
+   failure was likely due to warm-start/architecture/training details, and the
+   left-preconditioned story should stay alive.
+3. If left-trained actual-left only works after damping, report the nonlinear
+   left formulation as a safeguarded method, not as a plain learned
+   preconditioner.
+4. If no nonlinear-left version is safe, pivot to fixed/linear post-CSL
+   transfer operators.
+
+Full evaluation, after the smoke matrix is understood:
+
+```bash
+EVAL_SEEDS="2025 1111 3333" \
+RIGHT_N_PROBLEMS=200 \
+LEFT_N_PROBLEMS=200 \
+bash sbatch/launch_fair_left_right_beta0p3.sh
+```
+
+#### Fair scratch branch live status: 2026-06-26
+
+The fair smoke matrix was launched from `login008` after copying the new code
+from `wave7b` to the login-node checkout. The initial patch transfer failed
+because `wave7b` was not resolvable from `login008`; the working route was to
+tar the code on `wave7b` and extract it into `/home/fkiewiet/Freq2Transfer`.
+
+Important operational note: several early GPU jobs failed with
+
+```text
+RuntimeError: CUDA error: uncorrectable ECC error encountered
+```
+
+These are GPU/node hardware failures, not scientific results. Failed jobs with
+this error should simply be resubmitted.
+
+Fair data/gate jobs:
+
+| Job | Meaning | State / result |
+|---:|---|---|
+| `16618962` | Generate matched right/left fair data | Completed in `00:00:15`. |
+| `16618963` | First right-data gate | Failed with CUDA ECC error. Ignore scientifically. |
+| `16618964` | Left-action-data gate | Completed. `gamma=1.131327e-03`; 128-pair full-domain loss `0.039202`; geometry top-1 `0.109`, top-5 `0.446`, rank `22 / 28 / 39` for `90% / 95% / 99%`. |
+| `16619105` | Resubmitted right-data gate | Completed successfully. Inspect log for final right `gamma` and overfit loss before summarising. |
+
+Current fair smoke-matrix jobs:
+
+| Training side | Model | Train job | Right-FGMRES eval | Actual-left eval | Current interpretation |
+|---|---|---:|---:|---:|---|
+| left-action data | G6 | `16618971` | `16618972` | `16618973` | Completed. Best supervised validation about `0.0006`. In right-FGMRES it gives `10 -> 4` median iterations with true convergence `50/50`. In actual-left it gives left median `3`, but true convergence `0/50`; true residual at left stop median `1.19e-04`. |
+| left-action data | `pmlfeat` | `16619177` | `16619178` | `16619179` | Completed. Best supervised validation about `0.0005`. Actual-left gives left median `3` but only left convergence `27/50`, true convergence `0/50`; true residual at left stop median `8.51e-05`. Right-FGMRES eval `16619178` was still pending in the latest dashboard. |
+| right-FGMRES data | G6 | `16619391` | `16619392` | `16619393` | Training running in latest dashboard; evals pending by dependency. |
+| right-FGMRES data | `pmlfeat` | `16619394` | `16619395` | `16619396` | Training running in latest dashboard; evals pending by dependency. |
+
+Left-action fair smoke results now strongly suggest:
+
+```text
+The learned left-action target is easy to fit.
+The fitted correction can be useful when deployed as a right/flexible
+preconditioner.
+But undamped nonlinear actual-left deployment still fails true-residual safety.
+```
+
+Detailed completed left-action results:
+
+| Model trained on left-action data | Right-FGMRES eval | Actual-left eval |
+|---|---|---|
+| G6 | CSL median `10`, learned median `4`; learned convergence `50/50`; true median `6.84e-08`; distribution `{3: 15, 4: 35}`. | CSL actual-left: left median `9`, true convergence `7/50`. Learned: left median `3`, left convergence `49/50`, true convergence `0/50`, true residual at left stop median `1.19e-04`. |
+| `pmlfeat` | Pending / not yet available in latest pasted status. | CSL actual-left: left median `9`, true convergence `7/50`. Learned: left median `3`, left convergence `27/50`, true convergence `0/50`, true residual at left stop median `8.51e-05`. |
+
+Additional actual-left stopping diagnostic:
+
+| Diagnostic | CSL-only | Learned left-action G6 | Interpretation |
+|---|---|---|---|
+| `STOP_ON=never`, run to `max_iters=40` unless breakdown | left median `9`, true median `10`, true convergence `50/50` | left median `3`, true median sentinel `1000`, true convergence `0/50` | This rules out the simple explanation that the learned run only failed because it stopped too early on the left residual. Even when allowed to continue to 40 iterations, the nonlinear learned actual-left trajectory does not reach true-residual tolerance on seed `2025`, `N=50`. |
+
+Latest actual-left damping sweep:
+
+| Model | Setting | Jobs | Status / what to record |
+|---|---|---:|---|
+| left-action G6 | `STOP_ON=never`, seed `2025`, `N_PROBLEMS=50`, `alpha=0.05,0.1,0.25,0.5` | `16634117`, `16634118`, `16634119`, `16634120` | Completed. No tested damping value recovered left-residual or true-residual convergence. |
+
+Interpretation rule for this sweep:
+
+```text
+If small alpha restores true-residual convergence and reduces true iterations
+below CSL-only, keep a damped/safeguarded left-action branch.
+
+If small alpha restores true-residual convergence but does not beat CSL-only,
+the learned actual-left correction is safe only when it is too weak to matter.
+
+If no alpha reaches true-residual tolerance, stop treating undamped nonlinear
+actual-left as the main route and pivot to fixed/linear transfer operators.
+```
+
+Completed damping results:
+
+| Alpha | Job | State | True convergence | True median iterations | Left convergence | Left median iterations | Median time/problem | Interpretation |
+|---:|---:|---|---:|---:|---:|---:|---:|---|
+| `0.05` | `16634117` | completed | `0/50` | `1000` | `0/50` | `1000` | `23118.5 ms` | Too weak/ineffective; no convergence. |
+| `0.1` | `16634118` | completed | `0/50` | `1000` | `0/50` | `1000` | `20853.1 ms` | Too weak/ineffective; no convergence. |
+| `0.25` | `16634119` | completed | `0/50` | `1000` | `0/50` | `1000` | `28668.7 ms` | Too weak/ineffective; no convergence. |
+| `0.5` | `16634120` | completed | `0/50` | `1000` | `0/50` | `1000` | `15976.3 ms` | Too weak/ineffective; no convergence. |
+
+CSL-only in the same jobs remained healthy:
+
+```text
+left median = 9
+true median = 10
+left convergence = 50/50
+true convergence = 50/50
+left distribution = {9: 40, 10: 10}
+```
+
+Updated conclusion:
+
+```text
+The actual-left failure is not fixed by simple scalar damping.
+
+At alpha=1.0, the learned left-action G6 sometimes drove the left/preconditioned
+metric down quickly, but it did not reduce the true residual.
+
+At alpha=0.05--0.5 with STOP_ON=never, the learned actual-left solver did not
+converge at all in either left or true residual.
+
+So the current nonlinear learned actual-left embedding should not be the main
+research path. Keep it as a negative result and pivot toward fixed/linear
+frequency-transfer operators or a redesigned left formulation.
+```
+
+Original extraction commands on `login008`:
+
+```bash
+cd /home/fkiewiet/Freq2Transfer/experiments/claude/eigenvalue_1d/pml_1d
+
+sacct -X -j 16634117,16634118,16634119,16634120 \
+  --format=JobID,JobName%32,State,ExitCode,Elapsed,Start,End
+
+for j in 16634117 16634118 16634119 16634120; do
+  echo "===== $j ====="
+  tail -160 sbatch_logs/job45_pml_fair_lr_left_eval_${j}.out
+done
+```
+
+## Frequency-transfer pivot: first fixed diagnostics
+
+The current next branch follows Laurent's advice more directly: use
+low-frequency solves as a coarse/frequency correction rather than treating the
+neural network as an unstructured inverse.
+
+The first implemented diagnostic is deliberately non-neural:
+
+```text
+omega_L = 16
+omega_H = 32 = 2 * omega_L
+beta    = 0.3
+PML / absorbing boundary conditions
+outer solver = high-frequency FGMRES, monitored by true residual
+```
+
+For a high-frequency residual `r_H`, compare:
+
+```text
+CSL_H only:
+    CSL_H^{-1} r_H
+
+pure exact frequency transfer:
+    T_up A_L^{-1} T_down r_H
+
+pure low-CSL frequency transfer:
+    T_up CSL_L^{-1} T_down r_H
+
+post-CSL exact frequency transfer:
+    z0   = CSL_H^{-1} r_H
+    r2_H = r_H - A_H z0
+    z0 + alpha * T_up A_L^{-1} T_down r2_H
+
+post-CSL low-CSL frequency transfer:
+    z0   = CSL_H^{-1} r_H
+    r2_H = r_H - A_H z0
+    z0 + alpha * T_up CSL_L^{-1} T_down r2_H
+```
+
+Two transfer choices were launched:
+
+| Transfer | Meaning | Job | What it tests |
+|---|---|---:|---|
+| `identity` | Same grid, `T_down=I`, `T_up=I` | `16637396` | Whether a low-frequency operator solve at the same resolution contains useful correction signal before adding grid restriction/prolongation complications. |
+| `linear2` | 2:1 full-weighting restriction and linear interpolation prolongation | `16637397` | Whether a true multigrid-like residual restriction/error prolongation helps after CSL. |
+
+Expected baseline from the fixed beta setup:
+
+```text
+CSL_H beta=0.3 median ≈ 10 iterations
+absorption ratio ≈ 2.70e-03
+```
+
+Decision rule:
+
+```text
+If post-CSL fixed transfer beats CSL_H-only with true convergence, learning can
+target the transfer defect.
+
+If pure transfer is poor but post-CSL transfer helps, CSL is acting as the
+necessary smoother/base preconditioner.
+
+If exact low-frequency transfer helps but low-CSL transfer does not, the low
+solve quality is the bottleneck.
+
+If neither identity nor linear2 helps, inspect scaling, T_down/T_up, alpha, and
+the post-CSL residual definition before launching neural training.
+```
+
+Completed fixed frequency-transfer results:
+
+| Transfer | Method | Median iterations | Convergence | True residual median/max | Median time/problem | Interpretation |
+|---|---|---:|---:|---|---:|---|
+| `identity` | `CSL_H only` | `10` | `50/50` | `2.12e-07 / 9.36e-07` | `0.8 ms` | Baseline. |
+| `identity` | `pure exact FT` | `22` | `50/50` | `4.12e-07 / 9.49e-07` | `1.8 ms` | Low-frequency exact solve alone is much worse than CSL. |
+| `identity` | `pure CSL_L FT` | `21` | `50/50` | `3.70e-07 / 9.93e-07` | `1.7 ms` | Low-frequency CSL solve alone is also worse. |
+| `identity` | `post-CSL exact FT` | `15` | `50/50` | `2.96e-07 / 9.45e-07` | `1.5 ms` | Adding exact low-frequency correction after CSL worsens iterations. |
+| `identity` | `post-CSL CSL_L FT` | `14` | `50/50` | `5.33e-07 / 9.99e-07` | `1.4 ms` | Practical low-CSL correction also worsens iterations. |
+| `linear2` | `CSL_H only` | `10` | `50/50` | `2.12e-07 / 9.36e-07` | `1.3 ms` | Baseline. |
+| `linear2` | `pure exact FT` | `1000` | `0/50` | `4.12e-01 / 5.27e-01` | `580.0 ms` | Naive 2:1 residual restriction/prolongation is not a valid standalone preconditioner. |
+| `linear2` | `pure CSL_L FT` | `1000` | `0/50` | `4.13e-01 / 5.27e-01` | `589.4 ms` | Same failure with low-frequency CSL solve. |
+| `linear2` | `post-CSL exact FT` | `15` | `50/50` | `4.88e-07 / 9.86e-07` | `6.2 ms` | CSL stabilizes convergence, but the added coarse correction hurts iteration count. |
+| `linear2` | `post-CSL CSL_L FT` | `14` | `50/50` | `5.61e-07 / 9.56e-07` | `5.6 ms` | Same pattern: stable, but worse than CSL-only. |
+
+Updated frequency-transfer conclusion:
+
+```text
+The first fixed frequency-transfer correction does not improve the solver.
+
+CSL_H beta=0.3 is already median 10 iterations.
+Adding fixed low-frequency transfer after CSL gives median 14--15.
+Pure linear2 frequency transfer fails completely.
+
+Therefore, do not treat naive R/P frequency transfer as a useful coarse
+correction. Before training a neural defect around it, diagnose why the
+low-frequency correction is misaligned with the high-frequency post-CSL error.
+```
+
+Most likely causes to investigate:
+
+1. The low-frequency residual equation is not spectrally aligned with the
+   high-frequency post-CSL correction problem.
+2. The simple `linear2` restriction/prolongation ignores phase, PML geometry,
+   and the frequency-dependent `-omega^2` term.
+3. The transfer correction may need a learned scaling/sign/phase adjustment
+   before it is safe to add to CSL.
+4. The target should perhaps be learned directly as a transfer operator
+   `T_down/T_up` or defect, rather than using raw multigrid-style `R/P`.
+
+Recommended next diagnostic before any large neural training:
+
+```text
+On FGMRES-CSL residual samples, compute
+
+e_true = A_H^{-1} r2_H
+e_ft   = T_up A_L^{-1} T_down r2_H
+
+then measure:
+
+cosine/angle(e_true, e_ft)
+best scalar alpha per sample
+relative error ||e_true - alpha e_ft|| / ||e_true||
+whether alpha is consistently positive, negative, complex/phase-shifted, or unstable
+```
+
+If `e_ft` has poor alignment with `e_true`, learning a small defect around
+fixed `R/P` is unlikely to be the right next move. The better next move is to
+learn the transfer/alignment itself.
+
+Completed alignment diagnostic:
+
+| Transfer | Low solve | Median cosine | Median raw rel. error | Median best complex-aligned rel. error | Interpretation |
+|---|---|---:|---:|---:|---|
+| `identity` | exact `A_L^{-1}` | `0.345` | `2.023` | `0.939` | Weak alignment; scalar/phase fix insufficient. |
+| `identity` | `CSL_L^{-1}` | `0.445` | `1.580` | `0.896` | Slightly better, still weak overall. |
+| `linear2` | exact `A_L^{-1}` | `0.347` | `2.021` | `0.938` | Nearly identical to identity; grid coarsening is not the only issue. |
+| `linear2` | `CSL_L^{-1}` | `0.443` | `1.579` | `0.897` | Best of the fixed variants, but still not enough. |
+
+By-call diagnostic:
+
+```text
+Calls 2--4 have the strongest signal.
+For CSL_L transfer, median cosine is about 0.61--0.62 and best aligned
+relative error is about 0.78--0.79.
+
+Call 0 and later calls are much weaker.
+```
+
+Updated conclusion:
+
+```text
+Fixed frequency transfer contains only weak-to-moderate information. It is not
+strong enough to add as a correction or to use as the base of a small defect
+model.
+
+CSL_L transferred features are more promising than exact A_L transferred
+features, but they should be treated as auxiliary features for a nonlinear map,
+not as a direct correction.
+
+The frequency-transfer map is likely nonlinear/state-dependent; simple linear
+R/P plus low-frequency solve is too crude.
+```
+
+Implemented next pipeline:
+
+```text
+train_pml_freq_feature.py
+measure_pml_freq_feature.py
+sbatch/job48_freq_feature_data_beta0p3.sh
+sbatch/job49_freq_feature_train_beta0p3.sh
+sbatch/job50_freq_feature_eval_beta0p3.sh
+sbatch/launch_freq_feature_pipeline_beta0p3.sh
+```
+
+This is the first learned-map step. It does not add the linear transfer
+correction directly. Instead it trains:
+
+```text
+NN(r2_H, e_ft, optional PML/location features) -> e_true
+
+where
+e_ft   = T_up CSL_L^{-1} T_down r2_H
+e_true = A_H^{-1} r2_H
+```
+
+Deployment:
+
+```text
+M^{-1} r_H = CSL_H^{-1} r_H + alpha * NN(r2_H, e_ft, features)
+```
+
+First variants:
+
+| Variant | Goal |
+|---|---|
+| `linear2_csl_ft_pml` | Main learned frequency-feature model: 2:1 transfer feature plus PML/location channels. |
+| `identity_csl_ft_pml` | Checks whether same-grid low-frequency feature is better than 2:1 transfer. |
+| `linear2_csl_ft` | Checks whether PML/location features are necessary. |
+
+Packaged for ORCD:
+
+```text
+transfer_patches/freq_feature_learned_pipeline.tar.gz
+```
+
+First completed Stage 1 result:
+
+| Variant | Alpha | CSL median | Learned median | True convergence | Distribution | Interpretation |
+|---|---:|---:|---:|---:|---|---|
+| `identity_csl_ft_pml` | `0.25` | `10` | `8` | `50/50` | `{8:33, 9:17}` | Useful improvement. |
+| `identity_csl_ft_pml` | `0.5` | `10` | `7` | `50/50` | `{7:50}` | Strong first frequency-feature result. |
+| `linear2_csl_ft_pml` | `0.25` | `10` | `8` | `50/50` | `{8:29, 9:21}` | Useful improvement. |
+| `linear2_csl_ft_pml` | `0.5` | `10` | `7` | `50/50` | `{7:50}` | Strong result. |
+| `linear2_csl_ft_pml` | `1.0` | `10` | `4` | `50/50` | `{4:47, 5:3}` | Excellent result; best current Stage 1 model. |
+| `linear2_csl_ft` | `1.0` | `10` | `4` | `50/50` | `{4:28, 5:22}` | Strong no-PML/location control; PML/location channels are not essential in homogeneous 1D. |
+| `linear2_csl_ft_pml` | `1.0`, seed `1111` | `10` | `4` | `50/50` | `{4:50}` | Excellent seed confirmation. |
+| `linear2_csl_ft_pml` | `1.0`, seed `3333` | `10` | `4` | `50/50` | `{4:49, 5:1}` | Excellent seed confirmation. |
+
+Details:
+
+```text
+train job = 16639471
+eval jobs = 16639472, 16639473
+best val = 0.0011
+target_gain = 2.740888e-03
+true residual median/max:
+  alpha=0.25: 3.64e-07 / 9.94e-07
+  alpha=0.5 : 4.24e-07 / 7.20e-07
+```
+
+Interpretation:
+
+```text
+Stage 1 has already passed the minimum solver-level threshold.
+The raw low-frequency transfer was harmful as a direct correction, but the
+learned nonlinear map can use the same-grid CSL_L frequency feature safely.
+
+The stronger result is now the 2:1 PML-conditioned feature:
+linear2_csl_ft_pml at alpha=1.0 gives median 4 with true convergence 50/50.
+This means the multigrid-like frequency-transfer feature is useful once it is
+used by a nonlinear learned map rather than added directly.
+
+The seed confirmations show this is robust across seeds `2025`, `1111`, and
+`3333`. The no-PML/location control also reaches median `4`, so explicit
+PML/location channels are not essential in the homogeneous 1D case. The
+frequency-transfer feature plus high residual context is the main signal.
+```
+
+### Prepared next pipeline: Stage 2 learned `T_up`
+
+The next code path is prepared but not submitted automatically.
+
+After Laurent/Demanet feedback, insert tiny-overfit gates before the full
+Stage 2 run. No non-PML case is used.
+
+Files:
+
+```text
+train_pml_learned_tup.py
+measure_pml_learned_tup.py
+generate_pml_probe_residual_data.py
+sbatch/job53_pml_probe_data_beta0p3.sh
+sbatch/job54_learned_tup_tiny_overfit_beta0p3.sh
+sbatch/launch_learned_tup_gates_beta0p3.sh
+sbatch/job51_learned_tup_train_beta0p3.sh
+sbatch/job52_learned_tup_eval_beta0p3.sh
+sbatch/launch_learned_tup_pipeline_beta0p3.sh
+```
+
+Scientific purpose:
+
+```text
+Stage 1 learned how to use a fixed transferred low-frequency feature.
+Stage 2 makes the transfer itself cleaner:
+
+r2_L = T_down r2_H
+e_L  = CSL_L^-1 r2_L
+NN_Tup(e_L, r2_L, PML features) -> e_true on the high grid
+```
+
+Tiny-overfit gates, A then B:
+
+```text
+A. Existing FGMRES-CSL residual-call data:
+   BASE/data_fgmres_csl
+   N problems = 1, 10, 32
+
+B. Fresh random PML residual probe data:
+   BASE/data_probe_mixed
+   N problems = 1, 10, 32
+
+Both train and validate on the same filtered tiny set.
+Expected result: training loss should go near zero.
+```
+
+Gate launch:
+
+```bash
+cd /home/fkiewiet/Freq2Transfer/experiments/claude/eigenvalue_1d/pml_1d
+
+BASE="/orcd/scratch/orcd/006/fkiewiet/freq2transfer/eigenvalue_1d_pml/beta0p3_freq_feature" \
+PROBLEMS="1 10 32" \
+EPOCHS=2000 \
+MODE=mixed \
+VARIANT=tup_el_r2l_pml \
+ARCHES="cnn unet" \
+bash sbatch/launch_learned_tup_gates_beta0p3.sh
+```
+
+Summaries:
+
+```bash
+python summarise_freq_feature_results.py --base "$BASE"
+python summarise_learned_tup_gates.py --base "$BASE"
+python summarise_learned_tup_results.py --base "$BASE"
+```
+
+First learned `T_up` gate results on existing FGMRES-CSL data:
+
+| Run | best val | pass at `1e-3`? | Note |
+|---|---:|---:|---|
+| `cnn_n1` | `0.00633` | no | Some memorization, not enough. |
+| `cnn_n10` | `0.99692` | no | Stuck; likely not a trustworthy architecture signal. |
+| `cnn_n32` | `0.01075` | no | Learns, but weak. |
+| `unet_n1` | `0.00160` | no | Best so far; near strict gate and still improving. |
+| `unet_n10` | `0.01034` | no | Learns, but weak. |
+| `unet_n32` | `0.00241` | no | Promising; close enough to keep investigating. |
+
+Current conclusion:
+
+```text
+Full Stage 2 learned-T_up solver runs should wait.
+
+The A gate did not pass the strict 1e-3 memorization threshold. U-Net is the
+only clearly promising T_up architecture so far. This suggests explicit T_up is
+harder than Stage 1's high-grid correction network with low-frequency features.
+Wait for B_probe gates, then consider a longer/cooler U-Net-only gate rerun.
+```
+
+At a looser diagnostic threshold of `5e-3`, the U-Net gates for `n=1` and
+`n=32` pass:
+
+```text
+unet n=1   best_val=0.00160
+unet n=32  best_val=0.00241
+```
+
+This should be treated as a promising diagnostic, not as permission to launch
+the full solver sweep yet. The cleanest next move is to wait for B_probe, then
+rerun only U-Net gates longer/cooler if B behaves similarly.
+
+B_probe gates completed:
+
+| Run | best val | pass at `1e-3`? | pass at `5e-3`? | Note |
+|---|---:|---:|---:|---|
+| `cnn_n1` | `0.00197` | no | yes | Some ability to memorize. |
+| `cnn_n10` | `0.01373` | no | no | Weak. |
+| `cnn_n32` | `0.01432` | no | no | Weak. |
+| `unet_n1` | `0.000903` | yes | yes | Strict pass. |
+| `unet_n10` | `0.001176` | no | yes | Near strict pass. |
+| `unet_n32` | `0.003917` | no | yes | Practical pass. |
+
+Conclusion after A+B:
+
+```text
+Learned T_up is viable as an architecture/loss formulation.
+U-Net is the only architecture worth pursuing next.
+The harder distribution is A_fgmres, not B_probe.
+The next test should be a focused longer/cooler U-Net-only A_fgmres gate.
+```
+
+Focused long A_fgmres U-Net gate completed:
+
+| Run | best val | pass at `1e-3`? | pass at `5e-3`? |
+|---|---:|---:|---:|
+| `unet_long4000 n=1` | `0.000703` | yes | yes |
+| `unet_long4000 n=10` | `0.004132` | no | yes |
+| `unet_long4000 n=32` | `0.001719` | no | yes |
+
+This is enough to justify a focused learned-T_up solver evaluation. Keep the
+scope narrow: `arch=unet`, `variant=tup_el_r2l_pml`, alpha sweep only. Do not
+start learned T_down before seeing solver-level benefit.
+
+Stage 3 learned `T_down` gate code is prepared, but it is only a gate:
+
+```text
+train_pml_learned_tdown.py
+summarise_learned_tdown_gates.py
+sbatch/job55_learned_tdown_tiny_overfit_beta0p3.sh
+sbatch/launch_learned_tdown_gates_beta0p3.sh
+```
+
+The target is anchored:
+
+```text
+r2_L_base   = R r2_H
+r2_L_target = CSL_L (R e_true)
+learn delta = r2_L_target - r2_L_base
+```
+
+This can run as an overnight diagnostic, but should not be used in solver
+deployment unless the current learned-`T_up` solver test gives a real
+iteration-count improvement.
+
+Decision rule before learned `T_down`:
+
+```text
+First select the best T_up architecture/input from CNN vs U-Net and the input
+variants. Use solver-level true-residual metrics, not validation loss alone.
+
+Only then build Stage 3 learned T_down.
+The preferred T_down should be anchored:
+
+r2_L = R r2_H + delta_down_NN(r2_H, PML features)
+
+not a completely free black-box low residual.
+```
+
+Default launch:
+
+```bash
+cd /home/fkiewiet/Freq2Transfer/experiments/claude/eigenvalue_1d/pml_1d
+
+BASE="/orcd/scratch/orcd/006/fkiewiet/freq2transfer/eigenvalue_1d_pml/beta0p3_freq_feature" \
+TRAIN_EPOCHS=1200 \
+SEED=2025 \
+N_PROBLEMS=50 \
+ALPHAS="0.5 1.0 1.5" \
+VARIANTS="tup_el_r2l_pml tup_el_pml tup_el_r2l" \
+bash sbatch/launch_learned_tup_pipeline_beta0p3.sh
+```
+
+If waiting for Stage 1 seed confirmations:
+
+```bash
+CONFIRM_DEPS="16640948:16640949" \
+BASE="/orcd/scratch/orcd/006/fkiewiet/freq2transfer/eigenvalue_1d_pml/beta0p3_freq_feature" \
+TRAIN_EPOCHS=1200 \
+SEED=2025 \
+N_PROBLEMS=50 \
+ALPHAS="0.5 1.0 1.5" \
+VARIANTS="tup_el_r2l_pml tup_el_pml tup_el_r2l" \
+bash sbatch/launch_learned_tup_pipeline_beta0p3.sh
+```
+
+Interpretation:
+
+```text
+If Stage 2 learned T_up matches or beats Stage 1 median 4, proceed to learned T_down.
+If Stage 2 is worse, keep Stage 1 as the main frequency-transfer result.
+```
+
+Useful extraction commands on `login008`:
+
+```bash
+cd /home/fkiewiet/Freq2Transfer/experiments/claude/eigenvalue_1d/pml_1d
+
+sacct -X -j 16637396,16637397 \
+  --format=JobID,JobName%32,State,ExitCode,Elapsed,Start,End
+
+tail -220 sbatch_logs/job46_pml_ft_fixed_16637396.out
+tail -220 sbatch_logs/job46_pml_ft_fixed_16637397.out
+```
+
+Rows to record from each output:
+
+| Transfer | Method | Median iterations | Convergence | True residual median/max | Interpretation |
+|---|---|---:|---:|---|---|
+| `identity` | `CSL_H only` | `10` | `50/50` | `2.12e-07 / 9.36e-07` | baseline |
+| `identity` | `post-CSL exact FT` | `15` | `50/50` | `2.96e-07 / 9.45e-07` | worse than CSL-only |
+| `identity` | `post-CSL CSL_L FT` | `14` | `50/50` | `5.33e-07 / 9.99e-07` | worse than CSL-only |
+| `linear2` | `CSL_H only` | `10` | `50/50` | `2.12e-07 / 9.36e-07` | baseline |
+| `linear2` | `post-CSL exact FT` | `15` | `50/50` | `4.88e-07 / 9.86e-07` | worse than CSL-only |
+| `linear2` | `post-CSL CSL_L FT` | `14` | `50/50` | `5.61e-07 / 9.56e-07` | worse than CSL-only |
+
+Useful dashboard:
+
+```bash
+sacct -X -j 16618971,16618972,16618973,16619177,16619178,16619179,16619391,16619392,16619393,16619394,16619395,16619396 \
+  --format=JobID,JobName%32,State,ExitCode,Elapsed,Start,End
+```
+
+Useful training logs:
+
+```bash
+tail -60 sbatch_logs/job43_pml_fair_lr_train_16618971.out  # left G6
+tail -60 sbatch_logs/job43_pml_fair_lr_train_16619177.out  # left pmlfeat
+tail -60 sbatch_logs/job43_pml_fair_lr_train_16619391.out  # right G6, once started
+tail -60 sbatch_logs/job43_pml_fair_lr_train_16619394.out  # right pmlfeat, once started
+```
+
+When evaluations finish, compare exactly this matrix:
+
+| Training distribution | Model | Right-FGMRES result to record | Actual-left result to record |
+|---|---|---|---|
+| right-FGMRES residual calls | G6 | median, distribution, convergence, true residual | left median, left convergence, true convergence, true residual at left stop |
+| right-FGMRES residual calls | `pmlfeat` | median, distribution, convergence, true residual | left median, left convergence, true convergence, true residual at left stop |
+| left-action Arnoldi vectors | G6 | median, distribution, convergence, true residual | left median, left convergence, true convergence, true residual at left stop |
+| left-action Arnoldi vectors | `pmlfeat` | median, distribution, convergence, true residual | left median, left convergence, true convergence, true residual at left stop |
+
+Strategic interpretation rule:
+
+1. If right-trained models reproduce the `10 -> 4` right-FGMRES improvement and
+   left-trained models still fail actual-left true-residual safety, the final
+   nonlinear-CNN conclusion is: **right/flexible deployment works; undamped
+   nonlinear left Arnoldi is unreliable in this setting**.
+2. If left-trained scratch models now pass actual-left true-residual safety, the
+   previous failure was not structural; run the same formulation on seeds
+   `1111` and `3333`.
+3. If left-trained actual-left is close but unsafe, run the existing
+   `--learned_alpha` damping sweep before changing architecture.
+4. If left-trained actual-left remains unsafe even after damping, pivot toward
+   fixed/linear post-CSL transfer operators, which give a cleaner
+   left-preconditioned GMRES story.
+
+Do **not** start a wide architecture/input sweep before this smoke matrix and,
+if needed, the damping sweep finish. Extra inputs, U-Nets, more width, or more
+epochs only make sense if the fair matrix says nonlinear-left is close enough
+to be worth rescuing.
+
+#### Publication-oriented interpretation
+
+The strongest publishable direction is probably not “neural networks replace
+preconditioners.” A more defensible numerical story is:
+
+```text
+CSL removes the easy part.
+The remaining post-CSL defect has learnable low-dimensional structure.
+A learned correction is effective as a flexible right preconditioner.
+However, using the same nonlinear correction as a left Arnoldi operator is much
+more delicate and can break true-residual safety.
+This motivates fixed/linear transfer operators for an advisor-facing
+left-preconditioned formulation.
+```
+
+This is a stronger story than pretending left and right preconditioning are
+equivalent. The negative left-action result is scientifically useful because it
+identifies where the nonlinear learned operator stops behaving like a safe
+classical preconditioner.
 
 ## Question
 
@@ -507,10 +1641,10 @@ The current priority order is therefore:
 
 | Priority | Action | Why |
 |---:|---|---|
-| 1 | Track the Kees-aligned left-action training branch, jobs `16578514`--`16578517`. | This directly tests whether the actual-left failure was a training-distribution mismatch. |
-| 2 | If the left-action-trained seed `2025` smoke test is good, run the remaining `omega_H=32` seeds as one-seed CPU jobs. | Builds a clean advisor-facing three-seed table without wasting wall time. |
-| 3 | If left-action training still fails, pivot toward fixed/linear transfer operators before more nonlinear left-preconditioner experiments. | A second failure would suggest a structural Arnoldi/nonlinear-preconditioner issue rather than only off-distribution inputs. |
-| 4 | Run actual-left checks for `omega_H=64`, starting with `pmlfeat`, only after the `omega_H=32` formulation is understood. | `pmlfeat` is the best high-frequency left-metric variant so far, but the solver formulation should be settled first. |
+| 1 | Run one actual-left damping/safeguard diagnostic for the left-action-trained `pmlfeat` model at seed `2025`. | The undamped nonlinear left-action model learned the supervised target but failed true-residual safety; damping tells whether the issue is correction magnitude or structural instability. |
+| 2 | If damping does not restore true-residual safety with useful iteration reduction, pivot to fixed/linear transfer operators. | This is the cleaner advisor-facing numerical-methods direction after nonlinear left-action failure. |
+| 3 | Preserve and report the right-FGMRES post-CSL correction as the main successful result. | It robustly reduces iterations across `omega_H=16,32,64`; the actual-left failure should not invalidate that result. |
+| 4 | Defer actual-left checks for `omega_H=64` until the `omega_H=32` left formulation is settled. | `pmlfeat` is promising under the right-FGMRES/left-metric proxy, but the actual-left solver formulation is not yet reliable. |
 | 5 | Add iteration-indexed residual metadata to the next dataset format. | Enables early/late residual analysis and later on-policy data collection. |
 | 6 | Compare adjacent-frequency correction geometry and simple transfer baselines. | Establishes whether transfer is plausible before training `T_down/T_up`. |
 | 7 | Only then consider `omega_H=128`. | Avoids sprinting into a harder case before the solver story is clean. |
@@ -576,33 +1710,62 @@ smoke test:
 bash sbatch/launch_left_action_training_beta0p3.sh
 ```
 
-This branch has now been launched from `login007`:
+This branch was launched from `login007` and completed:
 
-| Job | Stage | Purpose |
+| Job | Stage | Current state / latest read |
 |---:|---|---|
-| `16578514` | left-action data generation | Generate `r=y_j=A_Hv_j`, exact `eh=A_H^{-1}y_j`, and metadata from CSL-left Arnoldi vectors. |
-| `16578515` | scaled-target gate | Recompute the left-action target scale `gamma` and check small-overfit learnability. |
-| `16578516` | `pmlfeat` training | Train the left-action `pmlfeat` model, warm-started from the right-FGMRES `pmlfeat` checkpoint. |
-| `16578517` | seed-2025 actual-left smoke test | Evaluate whether the left-action-trained model repairs the actual-left failure. |
+| `16578514` | left-action data generation | Completed. Generated `r=y_j=A_Hv_j`, exact `eh=A_H^{-1}y_j`, and metadata from CSL-left Arnoldi vectors. |
+| `16578515` | scaled-target gate | Completed. Selected `gamma=1.140045e-03`; 128-pair full-domain overfit loss was `0.04524`, below the `0.10` proceed threshold. |
+| `16578516` | `pmlfeat` training | Completed. Used `target_gain=1.140045e-03`, `28,000` train pairs, `2,800` validation pairs, `in_ch=5`, and warm-started from the right-FGMRES `pmlfeat` checkpoint. Best validation loss was `0.0005`. |
+| `16578901` | manual seed-2025 actual-left smoke test | Completed. Early checkpoint failed completely: learned left median sentinel `1000`, `0/50` left convergence. |
+| `16578517` | dependency seed-2025 actual-left smoke test | Completed. Final checkpoint gave learned left median `3.0` with `38/50` left convergence, but `0/50` true convergence and true residual median `1.09e-4`. |
+
+The left-action correction target is more spread out than the right-FGMRES
+post-CSL residual target: the gate found leading-direction energy `0.107`,
+top-five energy `0.448`, and rank `22 / 28 / 39` for `90% / 95% / 99%`
+energy. This makes it a harder target, but the small-overfit gate still passed.
+
+Current interpretation after completion:
+
+1. The gatekeeper and training results show that the left-action target is
+   learnable in supervised loss.
+2. The final actual-left smoke test shows that supervised learning is not
+   enough: the learned map improves the left metric for many cases, but fails
+   the true-residual safety check.
+3. This is evidence against continuing the undamped nonlinear CNN left-action
+   branch as-is.
+4. The useful remaining diagnostic is a damping/safeguard sweep. If damping does
+   not repair true-residual safety, pivot to fixed/linear transfer operators.
 
 Monitor with:
 
 ```bash
-squeue -j 16578514,16578515,16578516,16578517 \
+squeue -j 16578514,16578515,16578516,16578517,16578901 \
   -o "%.18i %.28j %.10T %.10M %.10l %.30R"
 
-sacct -X -j 16578514,16578515,16578516,16578517 \
+sacct -X -j 16578514,16578515,16578516,16578517,16578901 \
   --format=JobID,JobName%30,State,ExitCode,Elapsed,Start,End
+
+tail -80 sbatch_logs/job39_pml_leftact_train_16578516.out
+tail -80 sbatch_logs/job39_pml_leftact_train_16578516.err
+
+tail -120 sbatch_logs/job40_pml_leftact_eval_16578901.out
+tail -80 sbatch_logs/job40_pml_leftact_eval_16578901.err
+
+tail -120 sbatch_logs/job40_pml_leftact_eval_16578517.out
+tail -80 sbatch_logs/job40_pml_leftact_eval_16578517.err
 ```
 
 Interpretation rule:
 
-1. If left-action-trained `pmlfeat` now works, the previous failure was mainly
-   a training-distribution mismatch.
-2. If it still fails, the problem is more structural: the nonlinear CNN
-   correction is probably not a stable left Arnoldi operator, and the
-   advisor-facing branch should move toward fixed/linear transfer operators
-   `T_down/T_up` before nonlinear learned left preconditioning.
+1. If a small damping factor gives true-residual safety and useful left-iteration
+   reduction, the nonlinear left-action failure was partly an over-aggressive
+   correction issue.
+2. If damping does not give true-residual safety, the problem is more
+   structural: the nonlinear CNN correction is probably not a stable left
+   Arnoldi operator, and the advisor-facing branch should move toward
+   fixed/linear transfer operators `T_down/T_up` before nonlinear learned left
+   preconditioning.
 
 ## High-priority next solver check: flexible left-preconditioned FGMRES
 
@@ -1065,4 +2228,172 @@ bash sbatch/launch_actual_left_beta0p3.sh
 # Actual-left logs after submission
 tail -80 sbatch_logs/job33_pml_left_g6_<jobid>.out
 tail -80 sbatch_logs/job33_pml_left_pmlfeat_<jobid>.out
+
+# Current Kees-aligned left-action branch
+squeue -j 16578514,16578515,16578516,16578517,16578901 \
+  -o "%.18i %.28j %.10T %.10M %.10l %.30R"
+
+sacct -X -j 16578514,16578515,16578516,16578517,16578901 \
+  --format=JobID,JobName%30,State,ExitCode,Elapsed,Start,End
+
+tail -80 sbatch_logs/job39_pml_leftact_train_16578516.out
+tail -80 sbatch_logs/job39_pml_leftact_train_16578516.err
+
+tail -120 sbatch_logs/job40_pml_leftact_eval_16578901.out
+tail -80 sbatch_logs/job40_pml_leftact_eval_16578901.err
+```
+
+## End-of-day live handoff: 2026-06-26
+
+Main result:
+
+```text
+1D PML frequency transfer
+omega_L=16, omega_H=32, beta=0.3
+CSL_H baseline median: 10 iterations
+Stage 1 learned frequency-feature model: median 4 iterations
+robust on seeds 2025, 1111, 3333
+```
+
+Explicit learned `T_up` status:
+
+```text
+U-Net is the only promising architecture.
+CNN should not be pursued further right now.
+
+Long A_fgmres U-Net gates:
+  n=1   best val = 0.000703
+  n=10  best val = 0.004132
+  n=32  best val = 0.001719
+```
+
+Current learned-`T_up` solver jobs:
+
+```text
+16645832  train, running at last check
+16645833  eval alpha=0.5, pending on train
+16645834  eval alpha=1.0, pending on train
+16645835  eval alpha=1.5, pending on train
+```
+
+Training observation:
+
+```text
+Full-data T_up train loss decreased, but validation flattened/overfit around
+best val ~= 0.207. This may still be solver-useful, but Stage 1 remains the
+strong proven branch until the eval logs say otherwise.
+```
+
+Anchored learned `T_down` status:
+
+```text
+Target:
+  r2_L_base   = R r2_H
+  r2_L_target = CSL_L (R e_true)
+  learn delta = r2_L_target - r2_L_base
+
+Jobs:
+  16646536  A_fgmres n=1, completed, best val ~= 0.0008
+  16646537  A_fgmres n=10
+  16646538  A_fgmres n=32
+  16646539  B_probe n=1
+  16646540  B_probe n=10
+  16646541  B_probe n=32
+```
+
+Tomorrow commands:
+
+```bash
+cd /home/fkiewiet/Freq2Transfer/experiments/claude/eigenvalue_1d/pml_1d
+source /home/fkiewiet/Freq2Transfer/.venv/bin/activate
+BASE="/orcd/scratch/orcd/006/fkiewiet/freq2transfer/eigenvalue_1d_pml/beta0p3_freq_feature"
+
+sacct -X -j 16645832,16645833,16645834,16645835 \
+  --format=JobID,JobName%32,State,ExitCode,Elapsed,Start,End
+
+sacct -X -j 16646536,16646537,16646538,16646539,16646540,16646541 \
+  --format=JobID,JobName%32,State,ExitCode,Elapsed,Start,End
+
+python summarise_learned_tdown_gates.py --base "$BASE"
+python summarise_learned_tdown_gates.py --base "$BASE" --threshold 0.005
+```
+
+If learned-`T_up` evals completed:
+
+```bash
+tail -120 sbatch_logs/job52_pml_tup_eval_16645833.out
+tail -120 sbatch_logs/job52_pml_tup_eval_16645834.out
+tail -120 sbatch_logs/job52_pml_tup_eval_16645835.out
+```
+
+Decision rule:
+
+```text
+T_up median >= 10:
+  explicit T_up not useful yet; do not deploy learned Tdown.
+
+T_up median 5--9:
+  solver-useful but weaker than Stage 1; keep Stage 1 as main.
+
+T_up median about 4 or better:
+  explicit T_up is competitive. If Tdown gates pass, build integrated
+  anchored learned Tdown + learned Tup.
+
+Tdown gates fail:
+  keep fixed restriction Tdown.
+```
+
+Commit tomorrow:
+
+```text
+Add the code/docs for learned T_up/Tdown gates and launchers.
+Do not commit logs, checkpoints, npz data, /orcd results, or tarballs.
+```
+
+## Late update: explicit learned `T_up` solver test is negative
+
+Learned-`T_up` evals completed for alpha `0.5` and `1.0`:
+
+```text
+CSL_H only:
+  median=10.0, conv=50/50
+
+learned T_up, alpha=0.5:
+  median=15.0, conv=50/50
+
+learned T_up, alpha=1.0:
+  median=31.5, conv=50/50
+```
+
+This is a clear solver-level negative for explicit learned `T_up` in the
+current form. The model converges eventually, but it makes FGMRES substantially
+slower than CSL alone.
+
+Important interpretation:
+
+```text
+Tiny-overfit success was not sufficient.
+Full-data validation around 0.207 was a warning.
+The learned T_up direction is not Krylov-safe.
+Stage 1 remains the main positive result.
+```
+
+Anchored learned-`Tdown` A-gates:
+
+```text
+n=1   best val ~= 0.000778  strict pass
+n=10  best val ~= 0.019745  fail
+n=32  best val ~= 0.004591  practical pass
+```
+
+This is not clean enough to justify integrated learned `Tdown + Tup`,
+especially after explicit `Tup` hurt the solver.
+
+Updated instruction:
+
+```text
+Do not launch integrated learned Tdown + learned Tup.
+Keep the Stage 1 frequency-feature model as the leading result.
+Use the explicit T_up/Tdown results as diagnostics: making the transfer modular
+is harder and less stable than using low-frequency information as a feature.
 ```

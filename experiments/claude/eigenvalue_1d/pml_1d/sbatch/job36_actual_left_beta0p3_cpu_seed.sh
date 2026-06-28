@@ -23,6 +23,7 @@ VARIANT="${VARIANT:?Set VARIANT to g6 or pmlfeat}"
 SEED="${SEED:?Set SEED, e.g. 2025}"
 N_PROBLEMS="${N_PROBLEMS:-200}"
 MAX_ITERS="${MAX_ITERS:-40}"
+LEARNED_ALPHA="${LEARNED_ALPHA:-1.0}"
 
 case "$VARIANT" in
   g6)
@@ -46,7 +47,7 @@ mkdir -p sbatch_logs
 test -f "$CKPT"
 
 echo "Job 36: beta=0.3 flexible left-action FGMRES-style check, CPU-only, one seed"
-echo "variant=$VARIANT seed=$SEED ckpt=$CKPT n_problems=$N_PROBLEMS max_iters=$MAX_ITERS"
+echo "variant=$VARIANT seed=$SEED ckpt=$CKPT n_problems=$N_PROBLEMS max_iters=$MAX_ITERS learned_alpha=$LEARNED_ALPHA"
 
 python "$PML_DIR/measure_pml_actual_left.py" \
   --ckpt "$CKPT" \
@@ -54,5 +55,6 @@ python "$PML_DIR/measure_pml_actual_left.py" \
   --seed "$SEED" \
   --n_problems "$N_PROBLEMS" \
   --max_iters "$MAX_ITERS" \
+  --learned_alpha "$LEARNED_ALPHA" \
   --device cpu \
-  --out "$BASE/actual_left_cpu_${TAG}_seed${SEED}.json"
+  --out "$BASE/actual_left_cpu_${TAG}_seed${SEED}_alpha${LEARNED_ALPHA}.json"

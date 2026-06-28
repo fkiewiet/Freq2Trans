@@ -1,5 +1,5 @@
 #!/bin/bash
-# CPU-only actual left-action GMRES check for one beta=0.3 PML reference model.
+# CPU-only flexible left-action FGMRES-style check for one beta=0.3 PML reference model.
 #
 # This avoids the GPU GRES limit. It is useful when GPU training jobs already
 # consume the user's allowed simultaneous GPUs.
@@ -45,7 +45,7 @@ cd "$PML_DIR"
 mkdir -p sbatch_logs
 test -f "$CKPT"
 
-echo "Job 34: beta=0.3 actual left-action GMRES, CPU-only"
+echo "Job 34: beta=0.3 flexible left-action FGMRES-style check, CPU-only"
 echo "variant=$VARIANT ckpt=$CKPT n_problems=$N_PROBLEMS max_iters=$MAX_ITERS"
 
 for SEED in 2025 1111 3333; do

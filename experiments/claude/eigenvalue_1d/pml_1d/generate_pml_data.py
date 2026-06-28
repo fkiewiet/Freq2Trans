@@ -65,6 +65,7 @@ def generate_split(ops: dict, cfg, rng, n_problems: int, label: str) -> tuple:
     n      = cfg.n
 
     r_list, eh_list, uL_list, f_list = [], [], [], []
+    problem_idx, call_idx = [], []
     t0 = time.time()
     n_total_iters = 0
 
@@ -91,11 +92,13 @@ def generate_split(ops: dict, cfg, rng, n_problems: int, label: str) -> tuple:
                    tol=TOL, restart=RESTRT, maxiter=MAXITER, M=M_op)
 
         n_total_iters += len(call_log)
-        for r_c, eh_c in call_log:
+        for call_i, (r_c, eh_c) in enumerate(call_log):
             r_list.append( np.stack([r_c.real,  r_c.imag ]).astype(np.float32))
             eh_list.append(np.stack([eh_c.real, eh_c.imag]).astype(np.float32))
             uL_list.append(np.stack([uL_vec.real, uL_vec.imag]).astype(np.float32))
             f_list.append( np.stack([f_vec.real,  f_vec.imag ]).astype(np.float32))
+            problem_idx.append(prob_i)
+            call_idx.append(call_i)
 
         if (prob_i + 1) % 200 == 0 or (prob_i + 1) == n_problems:
             elapsed = time.time() - t0
@@ -104,10 +107,14 @@ def generate_split(ops: dict, cfg, rng, n_problems: int, label: str) -> tuple:
                   f"pairs={len(r_list):>7}  avg_iters={avg_iters:.1f}  "
                   f"elapsed={elapsed:.0f}s", flush=True)
 
-    return (np.stack(r_list),   # [N_pairs, 2, N]
-            np.stack(eh_list),
-            np.stack(uL_list),
-            np.stack(f_list))
+    return {
+        "r": np.stack(r_list),   # [N_pairs, 2, N]
+        "eh": np.stack(eh_list),
+        "uL": np.stack(uL_list),
+        "f": np.stack(f_list),
+        "problem_idx": np.asarray(problem_idx, dtype=np.int32),
+        "call_idx": np.asarray(call_idx, dtype=np.int32),
+    }
 
 
 # ── Main ──────────────────────────────────────────────────────────────────────
@@ -146,21 +153,33 @@ def main(args):
     # Training split
     rng_train = np.random.default_rng(args.seed)
     print(f"\nGenerating training split ({args.n_train} problems)...")
-    r, eh, uL, f = generate_split(ops, cfg, rng_train, args.n_train, "train")
+    train = generate_split(ops, cfg, rng_train, args.n_train, "train")
     path_train   = os.path.join(args.out_dir, "train.npz")
-    np.savez(path_train, r=r, eh=eh, uL=uL, f=f)
-    print(f"  Saved {path_train}: {r.shape[0]:,} pairs, shape {r.shape}")
+    np.savez(path_train, **train)
+    print(f"  Saved {path_train}: {train['r'].shape[0]:,} pairs, shape {train['r'].shape}")
 
     # Validation split (different seed)
     rng_val = np.random.default_rng(args.seed + 9999)
     print(f"\nGenerating validation split ({args.n_val} problems)...")
-    r, eh, uL, f = generate_split(ops, cfg, rng_val, args.n_val, "val")
+    val = generate_split(ops, cfg, rng_val, args.n_val, "val")
     path_val     = os.path.join(args.out_dir, "val.npz")
-    np.savez(path_val, r=r, eh=eh, uL=uL, f=f)
-    print(f"  Saved {path_val}: {r.shape[0]:,} pairs")
+    np.savez(path_val, **val)
+    print(f"  Saved {path_val}: {val['r'].shape[0]:,} pairs")
+
+    meta = {
+        "generator": "generate_pml_data.py",
+        "description": "Right/FGMRES CSL preconditioner-call residuals, stored as r; target eh=A_H^{-1}r",
+        "config": pml_cfg,
+        "n_train": args.n_train,
+        "n_val": args.n_val,
+        "seed": args.seed,
+        "keys": ["r", "eh", "uL", "f", "problem_idx", "call_idx"],
+    }
+    with open(os.path.join(args.out_dir, "metadata.json"), "w") as fh:
+        json.dump(meta, fh, indent=2)
 
     print(f"\nDone. Data in: {args.out_dir}/")
-    print(f"  Keys: r, eh, uL, f")
+    print(f"  Keys: r, eh, uL, f, problem_idx, call_idx")
     print(f"  - (r, eh) : compatible with PostCslDataset in train_postcsl.py")
     print(f"  - uL      : A_L^PML⁻¹f — u_L conditioning for train_pml.py --in_ch 4")
     print(f"  - f       : source term")

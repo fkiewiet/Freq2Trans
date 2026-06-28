@@ -20,7 +20,8 @@ OMEGA_L="$1"
 OMEGA_H="$2"
 TAG="omega${OMEGA_L}_to_${OMEGA_H}_beta0p3"
 
-cd /home/fkiewiet/Freq2Transfer/experiments/claude/eigenvalue_1d/pml_1d
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+cd "$SCRIPT_DIR/.."
 mkdir -p sbatch_logs
 
 J_DATA=$(OMEGA_L="$OMEGA_L" OMEGA_H="$OMEGA_H" TAG="$TAG" sbatch --parsable \

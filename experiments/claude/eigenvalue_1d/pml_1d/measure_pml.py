@@ -97,7 +97,7 @@ def summarise(name: str, counts: list[int], timings: list[float], true_residuals
     med   = float(np.median(c))
     ms    = float(np.median(t))
     true = np.asarray(true_residuals)
-    print(f"  {name:<32}  median={med:5.1f}  conv={conv:>3}/200  "
+    print(f"  {name:<32}  median={med:5.1f}  conv={conv:>3}/{len(counts)}  "
           f"true-med={np.median(true):.2e} true-max={np.max(true):.2e}  "
           f"dist={dict(list(dist.items())[:8])}  {ms:.1f}ms/problem")
     return {"median": med, "n_converged": conv, "distribution": dist,
@@ -119,7 +119,7 @@ def main(args) -> dict:
 
     print(f"\n{'='*60}")
     print(f"measure_pml.py")
-    print(f"  ω_H={omega_H}, β={beta}, n_problems={N_PROB}, seed={args.seed}")
+    print(f"  ω_H={omega_H}, β={beta}, n_problems={args.n_problems}, seed={args.seed}")
     print(f"  checkpoint: {args.ckpt}")
     print(f"{'='*60}\n")
 
@@ -191,8 +191,8 @@ def main(args) -> dict:
         A_L     = flux_pml_operator(omega_L, cfg)
         LU_L    = spla.splu(A_L)
 
-    print(f"Running {N_PROB} problems (seed={args.seed})...")
-    for prob_i in range(N_PROB):
+    print(f"Running {args.n_problems} problems (seed={args.seed})...")
+    for prob_i in range(args.n_problems):
         f = random_source(rng, cfg)
         _current_f = f
 
@@ -235,6 +235,8 @@ if __name__ == "__main__":
     p.add_argument("--seed",   type=int, default=2025)
     p.add_argument("--out",    type=str, default="",
                    help="Write JSON results to this file (optional)")
+    p.add_argument("--n_problems", type=int, default=N_PROB,
+                   help="Number of random right-hand sides to evaluate")
     p.add_argument("--device", type=str,
                    default="cuda" if torch.cuda.is_available() else "cpu")
     main(p.parse_args())

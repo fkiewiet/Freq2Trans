@@ -20,6 +20,8 @@ VARIANT="${VARIANT:?Set VARIANT to g6 or pmlfeat}"
 SEED="${SEED:-2025}"
 N_PROBLEMS="${N_PROBLEMS:-50}"
 MAX_ITERS="${MAX_ITERS:-40}"
+LEARNED_ALPHA="${LEARNED_ALPHA:-1.0}"
+STOP_ON="${STOP_ON:-left}"
 
 case "$VARIANT" in
   g6)
@@ -43,7 +45,7 @@ cd "$PML_DIR"
 test -f "$CKPT"
 
 echo "Job 40: actual-left smoke for left-action-trained model"
-echo "base=$BASE variant=$VARIANT seed=$SEED ckpt=$CKPT n_problems=$N_PROBLEMS"
+echo "base=$BASE variant=$VARIANT seed=$SEED ckpt=$CKPT n_problems=$N_PROBLEMS learned_alpha=$LEARNED_ALPHA stop_on=$STOP_ON"
 
 python measure_pml_actual_left.py \
   --ckpt "$CKPT" \
@@ -51,5 +53,7 @@ python measure_pml_actual_left.py \
   --seed "$SEED" \
   --n_problems "$N_PROBLEMS" \
   --max_iters "$MAX_ITERS" \
+  --learned_alpha "$LEARNED_ALPHA" \
+  --stop_on "$STOP_ON" \
   --device cpu \
-  --out "$BASE/actual_left_cpu_${TAG}_seed${SEED}.json"
+  --out "$BASE/actual_left_cpu_${TAG}_seed${SEED}_alpha${LEARNED_ALPHA}_stop${STOP_ON}.json"

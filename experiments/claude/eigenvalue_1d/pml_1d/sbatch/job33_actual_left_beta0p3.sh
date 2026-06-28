@@ -1,5 +1,5 @@
 #!/bin/bash
-# Three-seed actual left-action GMRES check for one beta=0.3 PML reference model.
+# Three-seed flexible left-action FGMRES-style check for one beta=0.3 PML reference model.
 
 #SBATCH --job-name=pml_actual_left
 #SBATCH --output=sbatch_logs/job33_%x_%j.out
@@ -41,7 +41,7 @@ module load cuda/12.9.1 || true
 cd "$PML_DIR"
 test -f "$CKPT"
 
-echo "Job 33: beta=0.3 actual left-action GMRES"
+echo "Job 33: beta=0.3 flexible left-action FGMRES-style check"
 echo "variant=$VARIANT ckpt=$CKPT"
 
 for SEED in 2025 1111 3333; do

@@ -1,5 +1,5 @@
 #!/bin/bash
-# CPU-only actual left-action GMRES check for one frequency-pair model.
+# CPU-only flexible left-action FGMRES-style check for one frequency-pair model.
 
 #SBATCH --job-name=pml_freq_actual_left_cpu
 #SBATCH --output=sbatch_logs/job35_%x_%j.out

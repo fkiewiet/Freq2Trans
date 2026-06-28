@@ -1,4 +1,4 @@
-"""Actual left-action GMRES check for 1D PML post-CSL preconditioners.
+"""Actual flexible left-action check for 1D PML post-CSL preconditioners.
 
 This script is the advisor-facing counterpart to ``measure_pml_left_metric.py``.
 Instead of tracing a right-preconditioned FGMRES trajectory and measuring a
@@ -12,8 +12,9 @@ GMRES on ``M_CSL^{-1} A_H x = M_CSL^{-1} b``.
 
 For the learned post-CSL correction map, ``M^{-1}`` contains normalisation and a
 neural network, so it is not a fixed matrix. We still apply the same left action
-directly, but report it as a nonlinear/flexible left-action GMRES experiment.
-The primary stopping metric is the actual instantaneous left residual
+directly, but report it as a nonlinear/flexible left-action FGMRES-style
+experiment. The primary stopping metric is the actual instantaneous left
+residual
 
     ||M^{-1}(b - A_H x_k)|| / ||M^{-1} b||,
 
@@ -72,6 +73,7 @@ def left_action_gmres(
     *,
     tol: float,
     max_iters: int,
+    stop_on: str,
 ) -> tuple[Array, list[dict], float]:
     """Run Arnoldi on v -> M^{-1} A v and report actual left/true residuals."""
     n = b.shape[0]
@@ -84,6 +86,18 @@ def left_action_gmres(
     V[:, 0] = g / g_norm
 
     records: list[dict] = []
+
+    def should_stop() -> bool:
+        item = records[-1]
+        if stop_on == "left":
+            return item["left_relative"] <= tol
+        if stop_on == "true":
+            return item["true_relative"] <= tol
+        if stop_on == "either":
+            return item["left_relative"] <= tol or item["true_relative"] <= tol
+        if stop_on == "never":
+            return False
+        raise ValueError(f"unknown stop_on={stop_on!r}")
 
     def record(iteration: int, x: Array, arnoldi_left_relative: float | None = None) -> None:
         r = b - A_H @ x
@@ -100,7 +114,7 @@ def left_action_gmres(
 
     x_best = np.zeros(n, dtype=complex)
     record(0, x_best)
-    if records[-1]["left_relative"] <= tol:
+    if should_stop():
         return x_best, records, 0.0
 
     e1 = np.zeros(max_iters + 1, dtype=complex)
@@ -132,7 +146,7 @@ def left_action_gmres(
         arnoldi_res = np.linalg.norm(rhs - Hj @ y) / g_norm
         record(j + 1, x_best, arnoldi_left_relative=float(arnoldi_res))
 
-        if records[-1]["left_relative"] <= tol or h_next <= 1e-14:
+        if should_stop() or h_next <= 1e-14:
             break
 
     elapsed_ms = (time.perf_counter() - t0) * 1e3
@@ -207,12 +221,12 @@ def main(args: argparse.Namespace) -> None:
         LU_L = spla.splu(flux_pml_operator(pml["omega_L"], cfg))
 
     print("=" * 72)
-    print("PML actual left-action GMRES")
+    print("PML actual flexible left-action FGMRES-style check")
     print(f"omega_H={omega_h}, beta={beta}, seed={args.seed}, n={args.n_problems}, "
-          f"max_iters={args.max_iters}, tol={args.tol}")
+          f"max_iters={args.max_iters}, tol={args.tol}, stop_on={args.stop_on}")
     print(f"checkpoint={args.ckpt}")
     print(f"conditioning={conditioning}; in_ch={in_ch}; width={width}; "
-          f"target_gain={target_gain:.3e}")
+          f"target_gain={target_gain:.3e}; learned_alpha={args.learned_alpha:.3e}")
     print("=" * 72)
 
     rng = np.random.default_rng(args.seed)
@@ -245,13 +259,16 @@ def main(args: argparse.Namespace) -> None:
             x = np.concatenate(pieces, axis=0)[None].astype(np.float32)
             with torch.no_grad():
                 pred = model(torch.from_numpy(x).to(device))[0].cpu().numpy()
-            return z0 + (pred[0] + 1j * pred[1]) * s * target_gain
+            learned_corr = (pred[0] + 1j * pred[1]) * s * target_gain
+            return z0 + args.learned_alpha * learned_corr
 
         _, trace_csl, ms_csl = left_action_gmres(
-            A_H, f, m_csl, tol=args.tol, max_iters=args.max_iters
+            A_H, f, m_csl, tol=args.tol, max_iters=args.max_iters,
+            stop_on=args.stop_on,
         )
         _, trace_nn, ms_nn = left_action_gmres(
-            A_H, f, m_nn, tol=args.tol, max_iters=args.max_iters
+            A_H, f, m_nn, tol=args.tol, max_iters=args.max_iters,
+            stop_on=args.stop_on,
         )
         traces_csl.append(trace_csl)
         traces_nn.append(trace_nn)
@@ -273,7 +290,9 @@ def main(args: argparse.Namespace) -> None:
         "conditioning": conditioning,
         "in_ch": in_ch,
         "target_gain": target_gain,
-        "definition": "Arnoldi action w = M^{-1} A_H v_j; stop on ||M^{-1}(b-Ax)||/||M^{-1}b||",
+        "learned_alpha": args.learned_alpha,
+        "stop_on": args.stop_on,
+        "definition": "Arnoldi action w = M^{-1} A_H v_j; records both ||M^{-1}(b-Ax)||/||M^{-1}b|| and ||b-Ax||/||b||",
         "csl": summarise("CSL-only actual-left", traces_csl, timings_csl, args.tol),
         "learned": summarise("learned actual-left", traces_nn, timings_nn, args.tol),
         "traces_csl": traces_csl,
@@ -294,4 +313,13 @@ if __name__ == "__main__":
     p.add_argument("--max_iters", type=int, default=40)
     p.add_argument("--tol", type=float, default=1e-6)
     p.add_argument("--device", default="cuda")
+    p.add_argument("--learned_alpha", type=float, default=1.0,
+                   help="Multiplier on the learned post-CSL correction inside M^{-1}; "
+                        "1.0 is the trained/deployed correction, smaller values test "
+                        "damped/safeguarded actual-left actions.")
+    p.add_argument("--stop_on", choices=["left", "true", "either", "never"], default="left",
+                   help="Stopping metric for the Arnoldi loop. 'left' reproduces "
+                        "left/preconditioned-residual stopping. 'true' keeps going "
+                        "until the original Helmholtz residual passes. 'never' runs "
+                        "to max_iters unless Arnoldi breaks down.")
     main(p.parse_args())

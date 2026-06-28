@@ -21,10 +21,13 @@ VARIANT="${VARIANT:?Set VARIANT=linear2_csl_ft_pml, identity_csl_ft_pml, or line
 SEED="${SEED:-2025}"
 N_PROBLEMS="${N_PROBLEMS:-50}"
 ALPHA="${ALPHA:-1.0}"
+CYCLES="${CYCLES:-1}"
+CYCLE_ALPHA_DECAY="${CYCLE_ALPHA_DECAY:-1.0}"
+CYCLE_ACCEPT_RATIO="${CYCLE_ACCEPT_RATIO:-0.0}"
 
 RUN_DIR="$BASE/runs_${VARIANT}"
 CKPT="$RUN_DIR/best.pt"
-OUT="$BASE/results_freq_feature_${VARIANT}_seed${SEED}_n${N_PROBLEMS}_alpha${ALPHA}.json"
+OUT="$BASE/results_freq_feature_${VARIANT}_seed${SEED}_n${N_PROBLEMS}_alpha${ALPHA}_cycles${CYCLES}_accept${CYCLE_ACCEPT_RATIO}.json"
 
 source "$ROOT/.venv/bin/activate"
 module load cuda/12.9.1 || true
@@ -33,7 +36,7 @@ test -f "$CKPT"
 test -f "$BASE/pml_config.json"
 
 echo "Job 50: frequency-feature eval"
-echo "base=$BASE variant=$VARIANT seed=$SEED n_problems=$N_PROBLEMS alpha=$ALPHA ckpt=$CKPT"
+echo "base=$BASE variant=$VARIANT seed=$SEED n_problems=$N_PROBLEMS alpha=$ALPHA cycles=$CYCLES accept=$CYCLE_ACCEPT_RATIO ckpt=$CKPT"
 
 python measure_pml_freq_feature.py \
   --ckpt "$CKPT" \
@@ -41,4 +44,7 @@ python measure_pml_freq_feature.py \
   --seed "$SEED" \
   --n_problems "$N_PROBLEMS" \
   --alpha "$ALPHA" \
+  --cycles "$CYCLES" \
+  --cycle_alpha_decay "$CYCLE_ALPHA_DECAY" \
+  --cycle_accept_ratio "$CYCLE_ACCEPT_RATIO" \
   --out "$OUT"

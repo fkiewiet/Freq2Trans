@@ -164,7 +164,12 @@ def main(args: argparse.Namespace) -> dict:
     print(f"omega_L={omega_l} omega_H={omega_h} beta={beta}")
     print(f"ckpt={args.ckpt}")
     print(f"transfer={transfer} low_solve={low_solve} conditioning={conditioning}")
-    print(f"target_kind={target_kind} target_gain={target_gain:.6e} alpha={args.alpha}")
+    print(
+        f"target_kind={target_kind} target_gain={target_gain:.6e} "
+        f"alpha={args.alpha} cycles={args.cycles} "
+        f"cycle_alpha_decay={args.cycle_alpha_decay} "
+        f"cycle_accept_ratio={args.cycle_accept_ratio}"
+    )
     print(f"seed={args.seed} n_problems={args.n_problems}")
     print("=" * 76)
 
@@ -189,10 +194,7 @@ def main(args: argparse.Namespace) -> dict:
     def M_csl_fn(r):
         return LU_CSL_H.solve(np.asarray(r, dtype=complex))
 
-    def M_nn_fn(r):
-        r_h = np.asarray(r, dtype=complex)
-        z0 = LU_CSL_H.solve(r_h)
-        r2 = r_h - A_H @ z0
+    def predict_corr(r2: Array) -> Array:
         e_ft = low_transfer(r2)
         s = max(float(np.linalg.norm(r2)), 1e-30)
         pieces = [
@@ -206,12 +208,27 @@ def main(args: argparse.Namespace) -> dict:
             y = model(torch.from_numpy(x).to(device))[0].cpu().numpy()
         pred = (y[0] + 1j * y[1]) * s * target_gain
         if target_kind == "e_true":
-            corr = pred
+            return pred
         elif target_kind == "defect":
-            corr = e_ft + pred
-        else:
-            raise ValueError(f"unknown target_kind={target_kind!r}")
-        return z0 + args.alpha * corr
+            return e_ft + pred
+        raise ValueError(f"unknown target_kind={target_kind!r}")
+
+    def M_nn_fn(r):
+        r_h = np.asarray(r, dtype=complex)
+        z = LU_CSL_H.solve(r_h)
+        alpha = args.alpha
+        for _cycle in range(args.cycles):
+            r2 = r_h - A_H @ z
+            corr = predict_corr(r2)
+            z_trial = z + alpha * corr
+            if args.cycle_accept_ratio > 0.0:
+                old_norm = max(float(np.linalg.norm(r2)), 1e-30)
+                new_norm = float(np.linalg.norm(r_h - A_H @ z_trial))
+                if new_norm > args.cycle_accept_ratio * old_norm:
+                    break
+            z = z_trial
+            alpha *= args.cycle_alpha_decay
+        return z
 
     M_csl = spla.LinearOperator((n, n), matvec=M_csl_fn, dtype=complex)
     M_nn = spla.LinearOperator((n, n), matvec=M_nn_fn, dtype=complex)
@@ -245,6 +262,9 @@ def main(args: argparse.Namespace) -> dict:
         "target_kind": target_kind,
         "target_gain": target_gain,
         "alpha": args.alpha,
+        "cycles": args.cycles,
+        "cycle_alpha_decay": args.cycle_alpha_decay,
+        "cycle_accept_ratio": args.cycle_accept_ratio,
         "n_problems": args.n_problems,
         "csl_only": summarise("CSL_H only", counts_csl, times_csl, true_csl),
         "nn": summarise("freq-feature NN", counts_nn, times_nn, true_nn),
@@ -265,6 +285,9 @@ if __name__ == "__main__":
     p.add_argument("--seed", type=int, default=2025)
     p.add_argument("--n_problems", type=int, default=50)
     p.add_argument("--alpha", type=float, default=1.0)
+    p.add_argument("--cycles", type=int, default=1, help="Number of repeated post-CSL frequency-feature correction cycles per preconditioner call.")
+    p.add_argument("--cycle_alpha_decay", type=float, default=1.0, help="Multiply alpha by this factor after each accepted cycle.")
+    p.add_argument("--cycle_accept_ratio", type=float, default=0.0, help="If >0, accept a cycle only when ||r-Az_new|| <= ratio * ||r-Az_old||.")
     p.add_argument("--transfer", choices=["", "identity", "linear2"], default="")
     p.add_argument("--low_solve", choices=["", "exact", "csl"], default="")
     p.add_argument("--tol", type=float, default=1e-6)

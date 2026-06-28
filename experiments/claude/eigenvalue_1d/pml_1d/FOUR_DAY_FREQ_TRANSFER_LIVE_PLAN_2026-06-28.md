@@ -567,3 +567,29 @@ For the remaining sprint, either:
   A. make Stage 1 figures/tables publication-ready, or
   B. port Stage 1-style frequency features to hetero/2D smoke.
 ```
+
+Fast follow-up added after this decision:
+
+```text
+measure_pml_freq_feature.py now supports repeated guarded cycles:
+
+z = CSL_H^-1 r
+repeat cycles times:
+  r2 = r - A_H z
+  e_ft = P CSL_L^-1 R r2
+  corr = NN(r2, e_ft, features)
+  accept z <- z + alpha corr only if the high-grid residual decreases enough
+
+This is the cheapest test of:
+  correct high level -> recompute residual -> T_down again -> low solve -> T_up-ish correction
+inside each FGMRES preconditioner call.
+```
+
+Recommended tiny matrix:
+
+```text
+cycles=1, accept=0.0      baseline Stage 1
+cycles=2, accept=0.95     second cycle only if residual improves
+cycles=2, accept=1.00     second cycle if non-worsening
+cycles=3, accept=0.95     only if cycles=2 helps or ties
+```

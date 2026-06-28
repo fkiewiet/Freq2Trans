@@ -142,6 +142,87 @@ the post-CSL defect learnable and Krylov-safe. The robust five-seed `N=200`
 confirmation makes Stage 1 the main result. The alpha sweep says keep
 `alpha=1.0`.
 
+### D2. What Stage 1 teaches us
+
+Stage 1 is not just a baseline. It is the main clue for how the repeated-cycle
+method should be built.
+
+The robust result is:
+
+```text
+CSL_H alone:        median 10 iterations
+Stage 1 correction: median 4 iterations
+tested on five seeds, N=200 each, 1000/1000 true-residual convergence
+```
+
+The successful object is:
+
+```text
+r2_H = r_H - A_H CSL_H^-1 r_H
+e_ft = P CSL_L^-1 R r2_H
+NN(r2_H, e_ft, features) -> high-frequency correction
+```
+
+Main lessons:
+
+1. The post-CSL residual is highly learnable.
+2. The low-frequency solve contains useful information, but not as a direct
+   correction. Raw fixed transfer worsened CSL, while using the transferred
+   low-frequency correction as a feature gave median `4`.
+3. High-frequency residual context is essential. The explicit modular
+   `T_up(e_L, r2_L)` branch fit small supervised gates but was not Krylov-safe.
+   The working model sees both the high-grid residual `r2_H` and the
+   low-frequency proposal `e_ft`.
+4. The correction scale is delicate. Alpha refinement showed:
+
+   ```text
+   alpha=0.75 -> median 6
+   alpha=1.00 -> median 4
+   alpha=1.25 -> median 6
+   ```
+
+   So more correction is not automatically better.
+
+Repeated-cycle implication:
+
+```text
+Cycle 0 works because the model sees the first post-CSL residual distribution.
+Cycle 1 may fail if the residual after one learned correction is out of
+distribution.
+```
+
+Therefore, if repeated cycles worsen, the right conclusion is not that the
+cycle idea is wrong. The likely conclusion is:
+
+```text
+Train on-policy cycle data:
+  r2_H^0 = residual after CSL
+  r2_H^1 = residual after one learned correction
+  r2_H^2 = residual after two learned corrections
+```
+
+Best repeated-cycle design principle:
+
+```text
+Keep the low-frequency proposal:
+  e_ft^k = P CSL_L^-1 R r2_H^k
+
+Keep high-frequency context:
+  input = r2_H^k, e_ft^k, optional cycle index/features
+
+Train for residual contraction:
+  correction should reduce ||r2_H^k - A_H correction||
+```
+
+The working recipe is therefore:
+
+```text
+low-frequency proposal + high-frequency residual-aware correction
+```
+
+Do not replace this with a pure modular `T_up` until the repeated-cycle
+residual contraction is understood.
+
 ### E. Negative but informative: explicit learned T_up
 
 Explicit learned `T_up` gate results were promising:

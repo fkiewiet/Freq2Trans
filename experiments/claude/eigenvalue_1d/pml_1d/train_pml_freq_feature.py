@@ -202,6 +202,7 @@ class FreqFeatureDataset(Dataset):
         low_solve: str,
         target_gain: float,
         target_kind: str,
+        residual_mode: str,
     ) -> None:
         expected = expected_in_ch(conditioning)
         data = np.load(npz_path)
@@ -212,9 +213,15 @@ class FreqFeatureDataset(Dataset):
         r = (data["r"][:, 0, :] + 1j * data["r"][:, 1, :]).astype(np.complex128)
         eh = (data["eh"][:, 0, :] + 1j * data["eh"][:, 1, :]).astype(np.complex128)
 
-        z0 = _LU_CSL_H.solve(r.T).T
-        r2 = r - (_A_H @ z0.T).T
-        e_true = eh - z0
+        if residual_mode == "post_csl":
+            z0 = _LU_CSL_H.solve(r.T).T
+            r2 = r - (_A_H @ z0.T).T
+            e_true = eh - z0
+        elif residual_mode == "direct":
+            r2 = r
+            e_true = eh
+        else:
+            raise ValueError(f"unknown residual_mode={residual_mode!r}")
 
         e_ft = np.empty_like(e_true)
         for i in range(M):
@@ -278,6 +285,7 @@ def train(args: argparse.Namespace, pml_cfg: dict) -> None:
     print(f"transfer={args.transfer} low_solve={args.low_solve}")
     print(f"conditioning={args.conditioning} in_ch={in_ch} width={args.width}")
     print(f"target_kind={args.target_kind} target_gain={args.target_gain}")
+    print(f"residual_mode={args.residual_mode}")
     print(f"data_dir={args.data_dir}")
     print(f"out_dir={args.out_dir}")
     print("=" * 72)
@@ -288,6 +296,7 @@ def train(args: argparse.Namespace, pml_cfg: dict) -> None:
         args.low_solve,
         args.target_gain,
         args.target_kind,
+        args.residual_mode,
     )
     # If target_gain was auto-computed on train, reuse it for validation.
     target_gain = tr_ds.target_gain
@@ -297,6 +306,7 @@ def train(args: argparse.Namespace, pml_cfg: dict) -> None:
         args.low_solve,
         target_gain,
         args.target_kind,
+        args.residual_mode,
     )
 
     tr_dl = DataLoader(tr_ds, batch_size=args.batch, shuffle=True, num_workers=4, pin_memory=True)
@@ -365,6 +375,7 @@ def train(args: argparse.Namespace, pml_cfg: dict) -> None:
             "conditioning": args.conditioning,
             "target_gain": target_gain,
             "target_kind": args.target_kind,
+            "residual_mode": args.residual_mode,
             "transfer": args.transfer,
             "low_solve": args.low_solve,
             "loss_domain": args.loss_domain,
@@ -406,6 +417,15 @@ def main() -> None:
     p.add_argument("--low_solve", choices=["exact", "csl"], default="csl")
     p.add_argument("--conditioning", choices=["ft", "ft_pml"], default="ft_pml")
     p.add_argument("--target_kind", choices=["e_true", "defect"], default="e_true")
+    p.add_argument(
+        "--residual_mode",
+        choices=["post_csl", "direct"],
+        default="post_csl",
+        help=(
+            "post_csl expects stored r=A residual and trains on r-A CSL^-1 r; "
+            "direct expects stored r already equals the residual to correct."
+        ),
+    )
     p.add_argument("--target_gain", type=float, default=0.0, help="<=0 computes median target/residual gain from train")
     p.add_argument("--width", type=int, default=64)
     p.add_argument("--epochs", type=int, default=1200)

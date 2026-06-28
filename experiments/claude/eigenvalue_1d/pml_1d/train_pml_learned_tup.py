@@ -163,6 +163,12 @@ def compute_auto_gain(target: Array, r2_h: Array) -> float:
     return float(np.median(ratio))
 
 
+def parse_call_indices(text: str) -> set[int] | None:
+    if not text.strip():
+        return None
+    return {int(part.strip()) for part in text.split(",") if part.strip()}
+
+
 class LearnedTupDataset(Dataset):
     def __init__(
         self,
@@ -172,10 +178,15 @@ class LearnedTupDataset(Dataset):
         target_kind: str,
         max_problems: int = 0,
         max_pairs: int = 0,
+        call_indices: set[int] | None = None,
     ) -> None:
         expected = expected_in_ch(conditioning)
         data = np.load(npz_path)
         idx = np.arange(data["r"].shape[0])
+        if call_indices is not None:
+            if "call_idx" not in data:
+                raise ValueError(f"call_indices requested but {npz_path} has no call_idx")
+            idx = idx[np.isin(data["call_idx"][idx], list(call_indices))]
         if max_problems > 0 and "problem_idx" in data:
             keep_probs = np.unique(data["problem_idx"])[:max_problems]
             idx = idx[np.isin(data["problem_idx"][idx], keep_probs)]
@@ -186,7 +197,8 @@ class LearnedTupDataset(Dataset):
             raise ValueError(f"empty dataset after filtering {npz_path}")
         print(
             f"  Loading {M:,} pairs from {Path(npz_path).name}"
-            f" (max_problems={max_problems}, max_pairs={max_pairs})...",
+            f" (max_problems={max_problems}, max_pairs={max_pairs}, "
+            f"call_indices={sorted(call_indices) if call_indices is not None else 'all'})...",
             end=" ",
             flush=True,
         )
@@ -372,7 +384,12 @@ def train(args: argparse.Namespace, pml_cfg: dict) -> None:
     print(f"transfer={args.transfer} low_solve={args.low_solve}")
     print(f"arch={args.arch} conditioning={args.conditioning} in_ch={in_ch} width={args.width}")
     print(f"target_kind={args.target_kind} target_gain={args.target_gain}")
-    print(f"max_problems={args.max_problems} max_pairs={args.max_pairs} val_same_as_train={args.val_same_as_train}")
+    call_indices = parse_call_indices(args.call_indices)
+    print(
+        f"max_problems={args.max_problems} max_pairs={args.max_pairs} "
+        f"call_indices={sorted(call_indices) if call_indices is not None else 'all'} "
+        f"val_same_as_train={args.val_same_as_train}"
+    )
     print(f"data_dir={args.data_dir}")
     print(f"out_dir={args.out_dir}")
     print("=" * 76)
@@ -386,6 +403,7 @@ def train(args: argparse.Namespace, pml_cfg: dict) -> None:
         args.target_kind,
         args.max_problems,
         args.max_pairs,
+        call_indices,
     )
     target_gain = tr_ds.target_gain
     val_ds = LearnedTupDataset(
@@ -395,6 +413,7 @@ def train(args: argparse.Namespace, pml_cfg: dict) -> None:
         args.target_kind,
         args.max_problems if args.val_same_as_train else args.val_max_problems,
         args.max_pairs if args.val_same_as_train else args.val_max_pairs,
+        call_indices,
     )
 
     tr_dl = DataLoader(tr_ds, batch_size=args.batch, shuffle=True, num_workers=4, pin_memory=True)
@@ -466,6 +485,7 @@ def train(args: argparse.Namespace, pml_cfg: dict) -> None:
             "loss_domain": args.loss_domain,
             "max_problems": args.max_problems,
             "max_pairs": args.max_pairs,
+            "call_indices": sorted(call_indices) if call_indices is not None else "all",
             "val_same_as_train": args.val_same_as_train,
             "model_state": model.state_dict(),
         }
@@ -521,6 +541,7 @@ def main() -> None:
     p.add_argument("--max_pairs", type=int, default=0, help="keep only first N pairs after problem filtering")
     p.add_argument("--val_max_problems", type=int, default=0)
     p.add_argument("--val_max_pairs", type=int, default=0)
+    p.add_argument("--call_indices", default="", help="Comma-separated FGMRES preconditioner call indices, e.g. '0,1,2,3'. Empty keeps all.")
     p.add_argument("--val_same_as_train", action="store_true", help="overfit gate: validate on same filtered train set")
     p.add_argument("--expected_beta", type=float, default=0.3)
     p.add_argument("--device", default="cuda" if torch.cuda.is_available() else "cpu")

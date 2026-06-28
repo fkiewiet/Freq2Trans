@@ -27,6 +27,16 @@ Array = np.ndarray
 Transfer = tuple[Callable[[Array], Array], Callable[[Array], Array], OneDConfig]
 
 
+def complex_l2_norm(x: Array) -> float:
+    """Return sqrt(sum |x_i|^2), using both real and imaginary parts."""
+    z = np.asarray(x, dtype=complex).ravel()
+    return float(np.sqrt(max(float(np.real(np.vdot(z, z))), 0.0)))
+
+
+def complex_relative_l2(x: Array, ref: Array, eps: float = 1e-30) -> float:
+    return complex_l2_norm(x) / max(complex_l2_norm(ref), eps)
+
+
 def restrict_full_weighting(x: Array, n_low: int) -> Array:
     n_high = x.shape[0]
     if n_high != 2 * n_low:
@@ -107,7 +117,7 @@ def run_fgmres(A_H, f: Array, M_op, n: int, tol: float, restart: int, maxiter: i
     iters = max(0, len(res) - 1)
     if iters >= restart * maxiter:
         iters = 1000
-    true_rel = float(np.linalg.norm(f - A_H @ x) / max(np.linalg.norm(f), 1e-30))
+    true_rel = complex_relative_l2(f - A_H @ x, f)
     return iters, ms, true_rel
 
 
@@ -124,14 +134,17 @@ def summarise(name: str, counts: list[int], timings: list[float], true_residuals
         "timing_ms": float(np.median(t)),
         "true_residual_median": float(np.median(tr)),
         "true_residual_max": float(np.max(tr)),
+        "true_complex_rel_l2_median": float(np.median(tr)),
+        "true_complex_rel_l2_max": float(np.max(tr)),
         "counts": c.tolist(),
         "true_residuals": tr.tolist(),
+        "true_complex_rel_l2": tr.tolist(),
     }
     print(
         f"  {name:<34} median={report['median']:5.1f} "
         f"conv={report['n_converged']:>3}/{len(counts)} "
-        f"true-med={report['true_residual_median']:.2e} "
-        f"true-max={report['true_residual_max']:.2e} "
+        f"complex-relL2-med={report['true_complex_rel_l2_median']:.2e} "
+        f"complex-relL2-max={report['true_complex_rel_l2_max']:.2e} "
         f"dist={dict(list(dist.items())[:10])} "
         f"{report['timing_ms']:.1f}ms/problem"
     )
@@ -198,7 +211,7 @@ def main(args: argparse.Namespace) -> dict:
 
     def predict_corr(r2: Array) -> Array:
         e_ft = low_transfer(r2)
-        s = max(float(np.linalg.norm(r2)), 1e-30)
+        s = max(complex_l2_norm(r2), 1e-30)
         pieces = [
             np.stack([r2.real / s, r2.imag / s]).astype(np.float32),
             np.stack([e_ft.real / s, e_ft.imag / s]).astype(np.float32),
@@ -235,8 +248,8 @@ def main(args: argparse.Namespace) -> dict:
                     cycle_alpha = best
             z_trial = z + cycle_alpha * corr
             if args.cycle_accept_ratio > 0.0:
-                old_norm = max(float(np.linalg.norm(r2)), 1e-30)
-                new_norm = float(np.linalg.norm(r_h - A_H @ z_trial))
+                old_norm = max(complex_l2_norm(r2), 1e-30)
+                new_norm = complex_l2_norm(r_h - A_H @ z_trial)
                 if new_norm > args.cycle_accept_ratio * old_norm:
                     break
             z = z_trial

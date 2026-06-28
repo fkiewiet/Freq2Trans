@@ -167,6 +167,8 @@ def main(args: argparse.Namespace) -> dict:
     print(
         f"target_kind={target_kind} target_gain={target_gain:.6e} "
         f"alpha={args.alpha} cycles={args.cycles} "
+        f"cycle_scale_mode={args.cycle_scale_mode} "
+        f"cycle_alpha_max_abs={args.cycle_alpha_max_abs} "
         f"cycle_alpha_decay={args.cycle_alpha_decay} "
         f"cycle_accept_ratio={args.cycle_accept_ratio}"
     )
@@ -220,7 +222,18 @@ def main(args: argparse.Namespace) -> dict:
         for _cycle in range(args.cycles):
             r2 = r_h - A_H @ z
             corr = predict_corr(r2)
-            z_trial = z + alpha * corr
+            cycle_alpha = alpha
+            if args.cycle_scale_mode != "fixed":
+                q = A_H @ corr
+                denom = np.vdot(q, q)
+                if abs(denom) > 1e-30:
+                    best = np.vdot(q, r2) / denom
+                    if args.cycle_scale_mode == "best_real":
+                        best = float(np.real(best))
+                    if args.cycle_alpha_max_abs > 0.0 and abs(best) > args.cycle_alpha_max_abs:
+                        best = best / abs(best) * args.cycle_alpha_max_abs
+                    cycle_alpha = best
+            z_trial = z + cycle_alpha * corr
             if args.cycle_accept_ratio > 0.0:
                 old_norm = max(float(np.linalg.norm(r2)), 1e-30)
                 new_norm = float(np.linalg.norm(r_h - A_H @ z_trial))
@@ -263,6 +276,8 @@ def main(args: argparse.Namespace) -> dict:
         "target_gain": target_gain,
         "alpha": args.alpha,
         "cycles": args.cycles,
+        "cycle_scale_mode": args.cycle_scale_mode,
+        "cycle_alpha_max_abs": args.cycle_alpha_max_abs,
         "cycle_alpha_decay": args.cycle_alpha_decay,
         "cycle_accept_ratio": args.cycle_accept_ratio,
         "n_problems": args.n_problems,
@@ -286,6 +301,8 @@ if __name__ == "__main__":
     p.add_argument("--n_problems", type=int, default=50)
     p.add_argument("--alpha", type=float, default=1.0)
     p.add_argument("--cycles", type=int, default=1, help="Number of repeated post-CSL frequency-feature correction cycles per preconditioner call.")
+    p.add_argument("--cycle_scale_mode", choices=["fixed", "best_complex", "best_real"], default="fixed", help="How to scale each predicted correction before applying it.")
+    p.add_argument("--cycle_alpha_max_abs", type=float, default=3.0, help="Clip best_real/best_complex per-cycle scalar to this absolute value; <=0 disables clipping.")
     p.add_argument("--cycle_alpha_decay", type=float, default=1.0, help="Multiply alpha by this factor after each accepted cycle.")
     p.add_argument("--cycle_accept_ratio", type=float, default=0.0, help="If >0, accept a cycle only when ||r-Az_new|| <= ratio * ||r-Az_old||.")
     p.add_argument("--transfer", choices=["", "identity", "linear2"], default="")

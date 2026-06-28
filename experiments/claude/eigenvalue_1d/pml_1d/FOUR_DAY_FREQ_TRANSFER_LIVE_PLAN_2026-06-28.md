@@ -2,7 +2,11 @@
 
 Date: 2026-06-28  
 Window: 4 days  
-Goal: get the strongest possible solver-facing frequency-transfer result, ideally moving toward heterogeneous / 2D full-cycle FGMRES iteration-count reduction.
+Goal: get the strongest possible solver-facing repeated frequency-transfer
+preconditioner: at every Krylov preconditioner call, take the current
+high-frequency residual, transfer down, solve low frequency, lift/correct high
+frequency, recompute the high-frequency residual, and repeat only when this
+reduces the true high-frequency defect.
 
 Latest ORCD check included here: login008 output from jobs `16645832--16645835`,
 `16646536--16646541`, `16648998--16649006`, and `16649009/16649010/16649014`.
@@ -21,16 +25,24 @@ r_H
   -> M^-1 r_H = z0_H + alpha e_H
 ```
 
-But the current evidence says the full modular cycle is not yet safe if
-`T_up` is deployed as a standalone high-grid correction. The four-day plan
-therefore uses a guarded ladder:
+The focus is now the repeated-cycle version of this object. Stage 1 is not just
+a final result; it is the safest current approximation to a full cycle because
+it already contains:
 
 ```text
-Stage 1: low-frequency feature + high-grid correction network  [already works]
-Stage 2: diagnose and repair explicit T_up                     [only if fast]
-Stage 3: anchored T_down + repaired/guarded T_up                [only if Stage 2 passes]
-Stage 4: port the best safe object to heterogeneity / 2D smoke  [as early as possible]
+r2_H -> R r2_H -> CSL_L^-1 -> P e_L = e_ft
+     -> NN(r2_H, e_ft, features) -> high-frequency correction
 ```
+
+The working hypothesis is:
+
+```text
+Repeated frequency-transfer can beat single-cycle Stage 1 only if each
+cycle is residual-contractive on the current high-frequency defect.
+```
+
+Therefore the next method should be guarded and residual-aware, not a blind
+application of more neural corrections.
 
 ## Current result ledger
 
@@ -225,233 +237,192 @@ cancelled the smoke train. Relaunch the smoke using the completed `N=200`
 dataset, or regenerate a small `N=50` dataset only if that is faster than
 pointing the smoke job at the completed data.
 
-## Four-day plan
+## Updated four-day plan: repeated-cycle first
 
-### Day 1: lock the 1D solver-safe result and diagnose T_up
-
-Main question:
-
-```text
-Why does explicit T_up hurt FGMRES despite passing small gates?
-```
-
-Actions:
-
-1. Freeze/report Stage 1 as the current baseline.
-2. Run or implement a learned-T_up alignment diagnostic on the failed checkpoint:
-
-   ```text
-   e_pred = NN_Tup(e_L, r2_L, features)
-   e_true = A_H^-1 r2_H
-   residual_after = r2_H - A_H e_pred
-   ```
-
-   Record:
-
-   ```text
-   cosine(e_pred, e_true)
-   norm ratio ||e_pred|| / ||e_true||
-   best real/complex alpha
-   ||r2_H - A_H e_pred|| / ||r2_H||
-   by FGMRES call index
-   ```
-
-3. Test only cheap safety variants of the existing T_up checkpoint:
-
-   ```text
-   alpha in {0.05, 0.1, 0.25}
-   target_kind = defect if checkpoint exists or can be trained quickly
-   optional residual-gated accept/reject:
-       use correction only if ||r2_H - A_H e_pred|| < eta ||r2_H||
-   ```
-
-Kill rule:
-
-```text
-If no T_up variant gets below CSL median 10 by end of Day 1, stop treating
-explicit T_up as the short-term route.
-```
-
-Keep rule:
-
-```text
-If any T_up variant reaches median 5--9 with 50/50 true convergence, keep it
-as a secondary branch, but Stage 1 remains the backbone.
-```
-
-### Day 2: build the fastest full-cycle approximation
+### Day 1: evaluate repeated-cycle Stage 1
 
 Main question:
 
 ```text
-Can we make a full-cycle-looking method without losing Stage 1 safety?
+Can the successful Stage 1 correction be applied more than once per
+preconditioner call without damaging FGMRES?
 ```
 
-Preferred method: guarded/full-cycle feature model.
-
-Use the successful Stage 1 form, but report it as the safe nonlinear full-cycle
-approximation:
+Current launched jobs test this directly with:
 
 ```text
-r2_L = R r2_H
-e_L  = CSL_L^-1 r2_L
-e_ft = P e_L
-e_H  = NN(r2_H, e_ft, features)
-M^-1 r_H = CSL_H^-1 r_H + alpha e_H
+cycles = 1, 2, 3
+residual accept gate = none / 0.95 / 1.0
+seed = 8888
+N_PROBLEMS = 50
 ```
 
-This is not a pure modular `T_up`, but it contains the full cycle and is
-solver-safe.
+Decision rule:
 
-Actions:
+| Result | Action |
+|---|---|
+| `cycles=2` improves below median `4` | Make repeated-cycle Stage 1 the main method; confirm on `N=200` and more seeds. |
+| `cycles=2` keeps median `4` but reduces 5-iteration tail | Keep repeated-cycle as a useful refinement; confirm cheaply. |
+| `cycles=2/3` worsen | Do not abandon cycles; train on-policy residuals from cycle 1/2. |
+| accept gate rejects most second cycles | The learned direction is first-cycle-specific; move to on-policy training. |
 
-1. Confirm Stage 1 on a larger `omega_H=32` sample if cheap:
+Important metric:
 
-   ```text
-   seeds = 2025, 1111, 3333
-   N_PROBLEMS = 200 if available, else keep 50 and move on
-   ```
+```text
+FGMRES iteration count first.
+Then correction acceptance rate and residual contraction.
+```
 
-   Status: done. Five seeds at `N=200` all give learned median `4` with
-   `200/200` convergence. Alpha refinement confirms `alpha=1.0`.
+### Day 2: add residual-minimizing cycle scaling
 
-2. Run Stage 1 at the next most relevant generalization axis:
+Highest-potential no-retraining improvement:
 
-   Priority order:
+```text
+Given a predicted correction e, compute q = A_H e.
+Choose scalar alpha_star that minimizes ||r2_H - alpha q||_2.
 
-   ```text
-   A. 1D heterogeneous post-CSL, if scripts/data are ready
-   B. 2D homogeneous FD/PML smoke, if 2D solver path is ready
-   C. omega_H=64 additional confirmation
-   ```
+alpha_star = (q^* r2_H) / (q^* q)
+```
 
-3. Do not start broad architecture sweeps.
+Then apply:
+
+```text
+z <- z + clip(alpha_star) e
+```
+
+Why this is promising:
+
+```text
+The network may predict a useful direction with wrong scale/phase.
+FGMRES only cares whether A_H e reduces the current residual.
+A one-dimensional residual-minimizing scalar makes every accepted cycle much
+more Krylov-safe.
+```
+
+Test matrix:
+
+```text
+fixed alpha=1.0, cycles=2, accept=0.95
+best complex alpha per cycle, cycles=2, accept=1.0
+best real alpha per cycle, cycles=2, accept=1.0
+same for cycles=3 only if cycles=2 helps
+```
+
+Implemented evaluator options:
+
+```text
+--cycle_scale_mode fixed | best_real | best_complex
+--cycle_alpha_max_abs 3.0
+--cycle_accept_ratio 0.95 or 1.0
+```
 
 Success threshold:
 
 ```text
-Any non-homogeneous or 2D smoke with median iteration reduction and true
-convergence is valuable, even if not 10 -> 4.
+Anything below median 4 is a breakthrough.
+A cleaner distribution at median 4 is still useful.
+Worse than median 4 means scaling alone is not enough.
 ```
 
-### Day 3: heterogeneity / 2D sprint
+### Day 3: train on-policy repeated-cycle residuals
 
-Main question:
+If repeated use worsens, the likely reason is distribution shift:
 
 ```text
-Does the Stage 1 frequency-feature idea survive outside homogeneous 1D?
+The model was trained on first post-CSL residuals:
+  r2_H^0 = r - A_H CSL_H^-1 r
+
+But repeated cycles feed it:
+  r2_H^1 = r - A_H (z0 + correction_0)
+  r2_H^2 = r - A_H (z1 + correction_1)
 ```
 
-Preferred hedge:
+Generate a small on-policy dataset:
 
 ```text
-Take Stage 1, not explicit T_up, to heterogeneity / 2D first.
+for each training residual r:
+  z0 = CSL_H^-1 r
+  for k in {0,1,2}:
+    r2_H^k = r - A_H z_k
+    e_ft^k = P CSL_L^-1 R r2_H^k
+    e_true^k = A_H^-1 r2_H^k
+    save (r2_H^k, e_ft^k, k, e_true^k)
+    z_{k+1} = z_k + guarded Stage1_NN(r2_H^k, e_ft^k)
 ```
 
-Reason:
+Train one cycle-aware model:
 
 ```text
-Stage 1 is the only frequency-transfer object currently proven Krylov-safe.
-Explicit T_up and learned Tdown are diagnostics until repaired.
+input = r2_H^k, e_ft^k, optional cycle_id channel
+target = e_true^k
+loss = field_rel_l2 + lambda * residual_rel_l2
 ```
 
-Heterogeneous 1D fast path:
+Residual loss:
 
 ```text
-z0 = CSL_H(c)^-1 r
-r2_H = r - A_H(c) z0
-r2_L = R r2_H
-e_L = CSL_L(c_low)^-1 r2_L
+||r2_H^k - A_H e_pred|| / ||r2_H^k||
+```
+
+Do not train a new free `T_up` first. The model must keep high-grid residual
+context until repeated-cycle contraction is proven.
+
+### Day 4: only then improve T_down
+
+If the repeated-cycle model is stable, improve `T_down` in an anchored way:
+
+```text
+r2_L = R r2_H + delta_down_NN(r2_H, features)
+e_L  = CSL_L^-1 r2_L
 e_ft = P e_L
-NN(r2_H, e_ft, medium/features) -> e_true
+correction = NN(r2_H, e_ft, features)
 ```
 
-2D fast path:
+The learned `T_down` target should remain anchored:
 
 ```text
-Use existing 2D FD/PML evaluator and warm-start infrastructure.
-Add/evaluate a post-CSL frequency-feature preconditioner only if implementation
-is smaller than one day. Otherwise produce a 2D smoke plan plus current 2D
-baseline/warm-start numbers.
+r2_L_target = CSL_L (R e_true)
+delta_target = r2_L_target - R r2_H
 ```
 
-Success thresholds:
+Do not build a free black-box `T_down`. The whole point is to keep:
 
 ```text
-1D hetero: any consistent median reduction over CSL with true convergence.
-2D smoke: even N=10 is acceptable if it demonstrates direction and logs true
-residual histories.
+restriction -> low-frequency solve -> high-frequency correction
 ```
 
-Kill rule:
+as a numerically interpretable cycle.
+
+### Final artifacts
+
+Required final artifacts for the repeated-cycle story:
 
 ```text
-If 2D implementation is not runnable by the end of Day 3 morning, do not keep
-coding it. Use Day 3 afternoon for hetero 1D or robust 1D figures.
-```
-
-### Day 4: consolidate and present
-
-Main question:
-
-```text
-What is the strongest honest result after four days?
-```
-
-Prepare one of three final stories.
-
-Story A, best case:
-
-```text
-Frequency-transfer post-CSL preconditioning reduces FGMRES in homogeneous 1D,
-survives a heterogeneity/2D smoke, and has a guarded full-cycle interpretation.
-```
-
-Story B, likely strong case:
-
-```text
-Homogeneous 1D PML frequency-transfer feature model is robust:
-CSL median 10 -> learned median 4 across seeds.
-Raw fixed transfer and explicit T_up fail, which shows the successful object is
-not naive multigrid transfer but a residual-aware learned post-CSL correction
-using low-frequency features.
-```
-
-Story C, fallback:
-
-```text
-The post-CSL defect is learnable and solver-useful in right/Flexible GMRES.
-The four-day diagnostics identify exactly why modular Tdown/Tup is hard:
-low-frequency transfer is weakly aligned and explicit T_up is not Krylov-safe.
-This motivates residual-aware T_up/Tdown training as future work.
-```
-
-Required final artifacts:
-
-```text
-1. One table of iteration medians / convergence counts.
-2. One residual-history plot or distribution plot.
-3. One diagram of CSL + frequency-feature correction.
-4. One clear negative-results table: raw FT, actual-left, explicit T_up.
-5. One paragraph explaining why Stage 1 is a valid frequency-transfer result.
+1. Stage 1 single-cycle table: CSL 10 -> learned 4 across five N=200 seeds.
+2. Repeated-cycle table: cycles/accept/scaling versus median iterations.
+3. Residual contraction diagnostic per cycle.
+4. Diagram: CSL base + repeated frequency-transfer correction loop.
+5. Negative table: raw fixed FT, explicit T_up, actual-left.
 ```
 
 ## Efficient experiment priority
 
 Run in this order:
 
-1. Stage 1 summary and seed confirmation.
-2. Learned-T_up residual-safety diagnostic.
-3. Cheap T_up alpha/gating rescue only if diagnostic suggests magnitude issue.
-4. Stage 1 to hetero 1D or 2D smoke.
-5. Anchored learned T_down only as a diagnostic, not integrated deployment.
+1. Finish current repeated-cycle Stage 1 evals.
+2. Add residual-minimizing scalar per cycle and evaluate `cycles=2`.
+3. If repeated cycles worsen, generate on-policy cycle residual data.
+4. Train one cycle-aware Stage 1-style model with residual-aware loss.
+5. Improve anchored `T_down` only after the repeated high-grid correction loop is stable.
 
 Do not run:
 
 ```text
 wide architecture sweeps
 actual-left rescue
-explicit learned Tdown + learned Tup deployment before T_up is repaired
+standalone explicit learned T_up rescue
+free black-box Tdown
+integrated learned Tdown + learned Tup before repeated-cycle contraction works
 large 2D training jobs without a same-day smoke
 new non-PML branches
 ```
@@ -537,7 +508,8 @@ they beat CSL in solver iterations quickly.
 
 ## Latest decision after ORCD results
 
-Do **not** build integrated learned `T_down + T_up` now.
+Do **not** build the old standalone integrated learned `T_down + T_up` now.
+Do focus on the repeated-cycle Stage 1-style preconditioner.
 
 Reasons:
 
@@ -558,14 +530,14 @@ Reasons:
    practical passes most B_probe and A n=32, but A n=10 fails badly.
 ```
 
-Action:
+Updated action:
 
 ```text
-Keep Stage 1 as the main result.
-Use explicit T_up and anchored Tdown as diagnostics/future work.
-For the remaining sprint, either:
-  A. make Stage 1 figures/tables publication-ready, or
-  B. port Stage 1-style frequency features to hetero/2D smoke.
+Use Stage 1 as the base cycle.
+Run repeated guarded cycles inside each FGMRES preconditioner call.
+If repeated cycles help, confirm and report the full repeated-cycle method.
+If repeated cycles hurt, train on-policy cycle residuals and add residual loss.
+Only after repeated-cycle contraction is stable, improve anchored T_down.
 ```
 
 Fast follow-up added after this decision:
@@ -592,4 +564,17 @@ cycles=1, accept=0.0      baseline Stage 1
 cycles=2, accept=0.95     second cycle only if residual improves
 cycles=2, accept=1.00     second cycle if non-worsening
 cycles=3, accept=0.95     only if cycles=2 helps or ties
+```
+
+Highest-potential next improvement:
+
+```text
+Per-cycle residual-minimizing scalar:
+
+q = A_H corr
+alpha_star = (q^* r2) / (q^* q)
+z <- z + alpha_star corr
+
+This directly minimizes ||r2 - alpha A_H corr|| for the current cycle.
+It may recover useful corrections whose learned scale/phase is imperfect.
 ```
